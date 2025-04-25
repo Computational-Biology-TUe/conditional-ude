@@ -1,7 +1,8 @@
 include("src/suppression_model.jl")
 
 # TODO: Replace this with a proper experiment/example!
-
+using SimpleChains: init_params
+using JLD2
 
 rng = StableRNG(27052023)
 
@@ -42,7 +43,7 @@ for λ in regularization_levels
     for i in 1:n_reps
         p_init = [ComponentArray(
             theta = randn(size(group_data, 3)),
-            neural = init_params(chain, rng=rng)
+            neural = init_params(neural_net, rng=rng)
         ) for i in 1:10_000]
 
         p_init_valid = [rand(size(validation_data, 3)) for i in 1:10_000]

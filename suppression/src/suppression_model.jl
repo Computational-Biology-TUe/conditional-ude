@@ -1,6 +1,6 @@
 using OrdinaryDiffEq
 using CairoMakie
-using SimpleChains
+using SimpleChains: init_params
 using ComponentArrays: ComponentArray
 using Optimization, OptimizationOptimisers, OptimizationOptimJL, SciMLSensitivity, Zygote
 using LineSearches
