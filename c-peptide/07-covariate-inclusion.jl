@@ -1,6 +1,18 @@
 # Model fit to the train data and evaluation on the test data
-RETRAIN_MODEL = false
-MAKE_FIGURES = true
+train_model = false
+extension = "eps"
+inch = 96
+pt = 4/3
+cm = inch / 2.54
+linewidth = 13.07245cm
+MANUSCRIPT_FIGURES = true
+ECCB_FIGURES = true
+FONTS = (
+    ; regular = "Fira Sans Light",
+    bold = "Fira Sans SemiBold",
+    italic = "Fira Sans Italic",
+    bold_italic = "Fira Sans SemiBold Italic",
+)
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
 
@@ -16,22 +28,23 @@ train_data, test_data = jldopen("data/ohashi.jld2") do file
     file["train"], file["test"]
 end
 
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
-
-
-
 # define the neural network
-network = chain(4, 2, tanh)
+network = chain(4, 2, tanh; input_dims=3) # (3 inputs for conditional, age, and glucose)
 t2dm = train_data.types .== "T2DM" # we filter on T2DM to compute the parameters from van Cauter (which discriminate between t2dm and ngt)
 
 # create the models
 models_train = [
-    CPeptideConditionalUDEModel(train_data.glucose[i,:], train_data.timepoints, train_data.ages[i], network, train_data.cpeptide[i,:], t2dm[i]) for i in axes(train_data.glucose, 1)
+    CPeptideConditionalCovariateUDEModel(train_data.glucose[i,:], train_data.timepoints, Float64.(train_data.ages[i]), network, train_data.cpeptide[i,:], t2dm[i]) for i in axes(train_data.glucose, 1)
 ]
 
 # train the models or load the trained model neural network parameters
-if RETRAIN_MODEL
+if train_model
+
+    # train on 70%, select on 30%
+    indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+
     optsols_train = train(models_train[indices_train], train_data.timepoints, train_data.cpeptide[indices_train,:], rng)
+
     neural_network_parameters = [optsol.u.neural[:] for optsol in optsols_train]
     betas = [optsol.u.conditional[:] for optsol in optsols_train]
 
@@ -43,7 +56,7 @@ if RETRAIN_MODEL
     best_model = optsols_train[best_model_index]
 
     # save the models
-    jldopen("source_data/cude_neural_parameters.jld2", "w") do file
+    jldopen("source_data/cude_covariate_neural_parameters_2.jld2", "w") do file
         file["width"] = 4
         file["depth"] = 2
         file["parameters"] = neural_network_parameters
@@ -52,7 +65,7 @@ if RETRAIN_MODEL
     end
 else
     neural_network_parameters, betas, best_model_index = try
-        jldopen("source_data/cude_neural_parameters.jld2") do file
+        jldopen("source_data/cude_covariate_neural_parameters_2.jld2") do file
             file["parameters"], file["betas"], file["best_model_index"]
         end
     catch
@@ -60,61 +73,74 @@ else
     end
 end
 
-objectives = evaluate_model(models_train[indices_validation],
-train_data.timepoints, train_data.cpeptide[indices_validation,:], neural_network_parameters,
-betas)
+# obtain the betas for the train data
+lb = minimum(betas[best_model_index]) - 0.1*abs(minimum(betas[best_model_index]))
+ub = maximum(betas[best_model_index]) + 0.1*abs(maximum(betas[best_model_index]))
 
-second_best_index = sortperm(sum(objectives, dims=2)[:])[2]
+optsols = train(models_train, train_data.timepoints, train_data.cpeptide, neural_network_parameters[best_model_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub)
+betas_train = [optsol.u[1] for optsol in optsols]
+objectives_train = [optsol.objective for optsol in optsols]
 
-if MAKE_FIGURES
+# obtain the betas for the test data
+t2dm = test_data.types .== "T2DM"
+models_test = [
+    CPeptideConditionalCovariateUDEModel(test_data.glucose[i,:], test_data.timepoints, Float64.(test_data.ages[i]), network, test_data.cpeptide[i,:], t2dm[i]) for i in axes(test_data.glucose, 1)
+]
 
-    COLORS = Dict(
+optsols = train(models_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters[best_model_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub)
+betas_test = [optsol.u[1] for optsol in optsols]
+objectives_test = [optsol.objective for optsol in optsols]
+
+COLORS = Dict(
     "T2DM" => RGBf(1/255, 120/255, 80/255),
     "NGT" => RGBf(1/255, 101/255, 157/255),
     "IGT" => RGBf(201/255, 78/255, 0/255)
     )
 
+figure_box_betas = let f = Figure()
+    ax = Axis(f[1,1], xlabel="group", ylabel="beta")
+    for (i,type) in enumerate(unique(test_data.types))
+        type_indices = test_data.types .== type
+        betas_type = exp.(betas_test[type_indices])
+        
+        boxplot!(ax, fill(i, sum(type_indices)), betas_type, color=COLORS[type], markersize=5)
+    end
+    f
+end
 
-    inch = 96
-    pt = 4/3
-    cm = inch / 2.54
-    linewidth = 21cm * 0.8
+figure_clamp_correlation = let f = Figure()
+    ax = Axis(f[1,1], xlabel="βᵢ", ylabel="C-peptide-clamp", title="Correlation")
+    for (i,type) in enumerate(unique(test_data.types))
+        type_indices = test_data.types .== type
+        betas_type = exp.(betas_test[type_indices])
+        clamp_type = test_data.first_phase[type_indices]
+        
+        scatter!(ax, betas_type, clamp_type, color=COLORS[type], markersize=15)
+    end
 
-    FONTS = (
-    ; regular = "Fira Sans Light",
-    bold = "Fira Sans SemiBold",
-    italic = "Fira Sans Italic",
-    bold_italic = "Fira Sans SemiBold Italic",
-)
+    scatter!(ax, exp.(betas_train), train_data.first_phase, color = (:black, 0.2), markersize=14, label="Train Data", marker=:star5)
 
-    # Figure 3 - model fits and errors for the test data
+    corr = corspearman([betas_test; betas_train], [test_data.first_phase; train_data.first_phase])
+    println(corr)
+    f
+end
 
-    # obtain the betas for the train data
-    lb = minimum(betas[best_model_index]) - 0.1*abs(minimum(betas[best_model_index]))
-    ub = maximum(betas[best_model_index]) + 0.1*abs(maximum(betas[best_model_index]))
 
-    optsols = train_with_sigma(models_train, train_data.timepoints, train_data.cpeptide, neural_network_parameters[best_model_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
-    betas_train = [optsol.u.ode[1] for optsol in optsols]
-    sigmas_train = [optsol.u.sigma for optsol in optsols]
-    objectives_train = ([optsol.objective for optsol in optsols] .- (length(train_data.timepoints)/2) .* log.(sigmas_train.^2)) .* (2 .* sigmas_train.^2)
 
-    # obtain the betas for the test data
-    t2dm = test_data.types .== "T2DM"
-    models_test = [
-        CPeptideConditionalUDEModel(test_data.glucose[i,:], test_data.timepoints, test_data.ages[i], network, test_data.cpeptide[i,:], t2dm[i]) for i in axes(test_data.glucose, 1)
-    ]
+function argmedian(x)
+    return argmin(abs.(x .- median(x)))
+end
 
-    optsols = train_with_sigma(models_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters[best_model_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
-    betas_test = [optsol.u.ode[1] for optsol in optsols]
-    sigmas_test = [optsol.u.sigma for optsol in optsols]
-    objectives_test = ([optsol.objective for optsol in optsols] .- (length(test_data.timepoints)/2) .* log.(sigmas_test.^2)) .* (2 .* sigmas_test.^2)
-
-    model_fit_figure = let fig = Figure(size = (linewidth*0.9, 6cm), fontsize=8pt, fonts=FONTS)
+# if MANUSCRIPT_FIGURES
+    model_fit_figure = let fig
+        fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
+        ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
+        gb = GridLayout(fig[1,4], nrow=1, ncol=1)
         # do the simulations
         sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
         sols = [Array(solve(model.problem, p=ComponentArray(conditional=[betas_test[i]], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
         
-        axs = [Axis(fig[1,i], title=type, xlabel="Time [min]", ylabel= i == 1 ? "C-peptide [nmol/L]" : "", backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false) for (i,type) in enumerate(unique(test_data.types))]
+        axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(test_data.types))]
 
         for (i,type) in enumerate(unique(test_data.types))
 
@@ -127,35 +153,14 @@ if MAKE_FIGURES
             # find the median fit of the type
             sol_type = sols[type_indices][sol_idx]
 
-            # obtain confidence intervals with likelihood profiles
-            loss_values, loss_minimum, parameter_values = likelihood_profile(
-                betas_test[type_indices][sol_idx], neural_network_parameters[best_model_index], models_test[type_indices][sol_idx], test_data.timepoints, c_peptide_data[sol_idx,:], betas_test[type_indices][sol_idx]-10, betas_test[type_indices][sol_idx]+15, sigmas_test[type_indices][sol_idx]; steps=10_000
-            )
-
-            # find the 95% confidence interval
-            min_parameter, max_parameter = find_confidence_intervals(
-                loss_values, loss_minimum, parameter_values
-            )
-
-            # compute the solution with the lower and upper bounds
-            sol_lower = Array(solve(models_test[type_indices][sol_idx].problem, p=ComponentArray(conditional=[min_parameter], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1))
-
-            lines!(axs[i], sol_timepoints, sol_lower[:,1], color=(COLORS[type], 0.5), linewidth=1, label="95% CI", linestyle=:dot)
-
-            if !isinf(max_parameter)
-                sol_upper = Array(solve(models_test[type_indices][sol_idx].problem, p=ComponentArray(conditional=[max_parameter], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1))
-
-                lines!(axs[i], sol_timepoints, sol_upper[:,1], color=(COLORS[type], 0.5), linewidth=1, label="95% CI", linestyle=:dot)
-            end
-
-            lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=2, label="Model fit", linestyle=:solid)
-            scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=7, label="Data")
+            lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:dot)
+            scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=5, label="Data")
 
         end
 
         linkyaxes!(axs...)
 
-        ax = Axis(fig[1,4], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="MSE", xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true)
+        ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="MSE")
 
         jitter_width = 0.1
 
@@ -166,358 +171,29 @@ if MAKE_FIGURES
             violin!(ax, repeat([i-1], length(objectives_test[type_indices])) .+ 0.05, objectives_test[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
         end
 
-        Legend(fig[2,1:3], axs[1], merge=true, orientation=:horizontal)
+    #  boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), objectives_test[test_data.types .== "NGT"], color=COLORS["NGT"], width=0.75)
+    # boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),objectives_test[test_data.types .== "IGT"], color=COLORS["IGT"], width=0.75)
+    # boxplot!(ax, repeat([2], sum(test_data.types .== "T2DM")),objectives_test[test_data.types .== "T2DM"], color=COLORS["T2DM"], width=0.75)
+
+        Legend(fig[2,1:3], axs[1], orientation=:horizontal)
+
+        for (label, layout) in zip(["a", "b", "c", "d"], [ga; gb])
+            Label(layout[1, 1, TopLeft()], label,
+            fontsize = 12,
+            font = :bold,
+            padding = (0, 20, 12, 0),
+            halign = :right)
+        end
 
     fig
     end
 
-    save("figures/revision/figure_3/model_fit_test_median.png", model_fit_figure, px_per_unit=300/inch)
-    save("figures/revision/figure_3/model_fit_test_median.svg", model_fit_figure, px_per_unit=300/inch)
-
-
-    # Figure 4 - correlation between betas and other parameters
-
-    correlation_figure = let fig = Figure(size = (linewidth, 7cm), fontsize=8pt, fonts=FONTS)
-        # compute the correlations
-        correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
-        correlation_second = corspearman([betas_train; betas_test], [train_data.ages; test_data.ages])
-        correlation_isi = corspearman([betas_train; betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
-
-        markers=[:circle, :utriangle, :rect]
-        MAKERS = Dict(
-            "NGT" => :circle,
-            "IGT" => :utriangle,
-            "T2DM" => :rect
-        )
-        MARKERSIZES = Dict(
-            "NGT" => 9,
-            "IGT" => 9,
-            "T2DM" => 9
-        )
-
-        ax_first = Axis(fig[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
-
-        scatter!(ax_first, exp.(betas_train), train_data.first_phase, color = (:black, 0.2), markersize=6, label="Train Data", marker=:star5)
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax_first, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], color=COLORS[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
-        end
-
-        ax_second = Axis(fig[1,2], xlabel="βᵢ", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
-
-        scatter!(ax_second, exp.(betas_train), train_data.ages, color = (:black, 0.2), markersize=6, label="Train", marker=:star5)
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax_second, exp.(betas_test[type_indices]), test_data.ages[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
-        end
-
-        ax_di = Axis(fig[1,3], xlabel="βᵢ", ylabel= "Ins. Sens. Index", title="ρ = $(round(correlation_isi, digits=4))")
-
-        scatter!(ax_di, exp.(betas_train), train_data.insulin_sensitivity, color = (:black, 0.2), markersize=6, label="Train", marker=:star5)
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax_di, exp.(betas_test[type_indices]), test_data.insulin_sensitivity[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
-        end
-
-        Legend(fig[2,1:3], ax_first, orientation=:horizontal)
-        
-        fig
-
-    end
-
-    save("figures/revision/figure_4/correlation.png", correlation_figure, px_per_unit=300/inch)
-    save("figures/revision/figure_4/correlation.svg", correlation_figure, px_per_unit=300/inch)
-
-
-   
-
-end
-
-# Figure Sj - likelihood profiles
-figure_likelihood_profiles = let f = Figure(size=(7cm, 7cm), fontsize=8pt, fonts=FONTS)
-
-    ax = Axis(f[1,1], xlabel="Δβ", ylabel="ΔLikelihood", xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false)
-    for (i, model) in enumerate(models_train)
-        timepoints = train_data.timepoints
-        cpeptide_data = train_data.cpeptide[i,:]
-        lower_bound = betas_train[i] - 5.0
-        upper_bound = betas_train[i] + 3.0
-
-        loss_values, loss_minimum, parameter_values = likelihood_profile(betas_train[i], neural_network_parameters[best_model_index], model, timepoints, cpeptide_data, lower_bound, upper_bound, sigmas_train[i]; steps=10_000)
-
-        lines!(ax, range(-5.0, stop=3.0, length=10000), loss_values .- loss_minimum, color=(COLORS[train_data.types[i]], 0.2), label="Likelihood profile")
-    end
-
-    ylims!(ax, 0.0, 10.0)
-    hlines!(ax, 7.16,-3.0,3.0, color=(Makie.wong_colors()[1], 1), label="95% Cantelli Threshold", linestyle=:dash, linewidth=2.5)
-
-    f
-end
-
-# Figure Sx - beta distribution and sampled parameters
-figure_beta_distribution = let f = Figure(size=(8cm, 7cm), fontsize=8pt, fonts=FONTS)
-
-    ax = Axis(f[1,1], xlabel="βᵢ", ylabel="Density", topspinevisible=false, rightspinevisible=false, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=true)
-    density!(ax, exp.([betas_train; betas_test]), color = (:black, 0.4),label="all types")
-
-    for (i,type) in enumerate(unique(test_data.types))
-        type_indices_test = test_data.types .== type
-        type_indices_train = train_data.types .== type
-        density!(ax, [exp.(betas_test[type_indices_test]); exp.(betas_train[type_indices_train])], color=(COLORS[type], 0.3), label=type)
-    end
-
-    Legend(f[2,1], ax, orientation=:horizontal, fontsize=8pt, font=FONTS)
-    f
-end
-
-figure_sampled_simulations = let f = Figure(size=(16cm, 7cm), fontsize=8pt, fonts=FONTS)
-
-    sol_timepoints = train_data.timepoints[1]:0.1:train_data.timepoints[end]
-
-    axs = [Axis(f[1,i], xlabel="Time [min]", ylabel= i == 1 ? "C-peptide [nmol/L]" : "", title=type, backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false) for (i,type) in enumerate(unique(test_data.types))]
-    # for each type, sample betas and simulate the model
-    for (i,type) in enumerate(unique(test_data.types))
-
-        type_indices_test = test_data.types .== type
-        type_indices_train = train_data.types .== type
-
-        # mean c-peptide data
-        avg_cpeptide = mean([train_data.cpeptide[type_indices_train, :]; test_data.cpeptide[type_indices_test, :]], dims=1)[:]
-        avg_glucose = mean([train_data.glucose[type_indices_train, :]; test_data.glucose[type_indices_test, :]], dims=1)[:]
-        avg_ages = mean([train_data.ages[type_indices_train]; test_data.ages[type_indices_test]])
-        std_cpeptide = std([train_data.cpeptide[type_indices_train, :]; test_data.cpeptide[type_indices_test, :]], dims=1)[:]
-
-        model = 
-            CPeptideConditionalUDEModel(avg_glucose, train_data.timepoints, avg_ages, network, avg_cpeptide, type == "T2DM")
-
-        betas_from = [betas_train[type_indices_train]; betas_test[type_indices_test]]
-        # sample betas
-        sampled_betas = rand(rng, betas_from, 500)
-
-        # simulate the model
-        sols = [Array(solve(model.problem, p=ComponentArray(conditional=[sampled_betas[i]], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1)) for i in 1:500]
-
-        for sol in sols
-            lines!(axs[i], sol_timepoints, sol[:,1], color=(:black, 0.005), label="Simulation (sample)")
-        end
-
-        mean_sol = mean(hcat(sols...), dims=2)[:]
-        
-        # plot the mean c-peptide data
-        errorbars!(axs[i], train_data.timepoints, avg_cpeptide, std_cpeptide, color="black", label="Data (Mean ± std)", whiskerwidth=5)
-        scatter!(axs[i], train_data.timepoints, avg_cpeptide, color="black", markersize=7, label="Data (Mean ± std)")
-
-        # plot the simulations
-        lines!(axs[i], sol_timepoints, mean_sol, color=(COLORS[type], 0.9), label="Simulation (mean)", linewidth=2)
-
-
-
-
-
-    end
-    linkyaxes!(axs...)
-    # add legend
-    legend = Legend(f[2,1:3], axs[1], merge=true, orientation = :horizontal, fontsize=8pt, font = FONTS)
-
-    f
-end
-
-save("figures/revision/figure_sx/beta_distribution.png", figure_beta_distribution, px_per_unit=300/inch)
-save("figures/revision/figure_sx/sampled_simulations.png", figure_sampled_simulations, px_per_unit=300/inch)
-save("figures/revision/figure_sx/beta_distribution.svg", figure_beta_distribution, px_per_unit=300/inch)
-save("figures/revision/figure_sx/sampled_simulations.svg", figure_sampled_simulations, px_per_unit=300/inch)
-
-
-figure_second_best_correlation = let f = Figure(size=(6cm, 6cm), fontsize=8pt, fonts=FONTS)
-
-    markers=[:circle, :utriangle, :rect]
-    MARKERS = Dict(
-        "NGT" => :circle,
-        "IGT" => :utriangle,
-        "T2DM" => :rect
-    )
-    MARKERSIZES = Dict(
-        "NGT" => 9,
-        "IGT" => 9,
-        "T2DM" => 9
-    )
-    # obtain the betas for the train data
-    lb = minimum(betas[second_best_index]) - 0.1*abs(minimum(betas[second_best_index]))
-    ub = maximum(betas[second_best_index]) + 0.1*abs(maximum(betas[second_best_index]))
-
-    optsols = train(models_train, train_data.timepoints, train_data.cpeptide, neural_network_parameters[second_best_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
-    betas_train = [optsol.u[1] for optsol in optsols]
-    objectives_train = [optsol.objective for optsol in optsols]
-
-    # obtain the betas for the test data
-    t2dm = test_data.types .== "T2DM"
-    models_test = [
-        CPeptideConditionalUDEModel(test_data.glucose[i,:], test_data.timepoints, test_data.ages[i], network, test_data.cpeptide[i,:], t2dm[i]) for i in axes(test_data.glucose, 1)
-    ]
-
-    optsols = train(models_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters[second_best_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
-    betas_test = [optsol.u[1] for optsol in optsols]
-    objectives_test = [optsol.objective for optsol in optsols]
-
-    correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
-
-    ax = Axis(f[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
-
-    scatter!(ax, exp.(betas_train), train_data.first_phase, color = (:black, 0.2), markersize=6, label="Train Data", marker=:star5)
-    for (i,type) in enumerate(unique(test_data.types))
-        type_indices = test_data.types .== type
-        scatter!(ax, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], color=COLORS[type], label="Test $type", marker=MARKERS[type], markersize=MARKERSIZES[type])
-    end
-
-    f
-end
-
-figure_other_betas = let f = Figure(size = (1000, 1000), fontsize=8pt)
-    other_betas = betas
-    g = GridLayout(f[1, 1], nrow=5, ncol=5)
-    axs = [Axis(g[1 + (i-1) ÷ 5, 1 + (i-1) % 5], xlabel="βᵢ", ylabel="First Phase Clamp", title="$(i)") for i in eachindex(betas)]
-    println(length(axs))
-    for (i,b) in enumerate(other_betas)
-        correlation = corspearman(exp.(b), train_data.first_phase[indices_train])
-        background_color = correlation > 0.0 ? (COLORS["T2DM"], 0.1) : (COLORS["IGT"], 0.1)
-        axs[i].backgroundcolor = background_color
-        scatter!(axs[i], exp.(b), train_data.first_phase[indices_train], color = (:black, 0.9), markersize=6, marker=:circle)
-    end
-f
-end
-
-save("figures/revision/figure_s8/other_betas.png", figure_other_betas, px_per_unit=300/inch)
-save("figures/revision/figure_s8/second_best_correlation.png", figure_second_best_correlation, px_per_unit=300/inch)
-
-# Figure comparison with non-conditional model
-figure_comparison = let f = Figure(size=(16cm, 7cm), fontsize=8pt, fonts=FONTS, backgroundcolor=:transparent)
-
-    # fit the non-conditional model
-    # Fit the c-peptide data with a regular UDE model on the average data of the train subgroup
-    mean_c_peptide_train = mean(train_data.cpeptide, dims=1)
-    std_c_peptide_train = std(train_data.cpeptide, dims=1)[:]
-
-    mean_glucose_train = mean(train_data.glucose, dims=1)
-
-    neural_network_nc = chain(
-        4, 2, tanh; input_dims=1
-    )
-
-    model_train_nc = CPeptideUDEModel(mean_glucose_train[:], train_data.timepoints, mean(train_data.ages), neural_network_nc, mean_c_peptide_train[:], false)
-    optsols_train_nc = train(model_train_nc, train_data.timepoints, mean_c_peptide_train[:], rng)
-
-    best_model_nc = optsols_train_nc[argmin([optsol.objective for optsol in optsols_train_nc])]
-    neural_network_parameters_nc = best_model_nc.u[:]
-
-    plot_timepoints = train_data.timepoints[1]:0.1:train_data.timepoints[end]
-    axs = []
-    for (i, type) in enumerate(unique(test_data.types))
-
-        type_indices = test_data.types .== type
-
-        mean_c_peptide = mean(test_data.cpeptide[type_indices,:], dims=1)
-        std_c_peptide = std(test_data.cpeptide[type_indices,:], dims=1)[:]
-        mean_glucose = mean(test_data.glucose[type_indices,:], dims=1)[:]
-        mean_age = mean(test_data.ages[type_indices])
-        ax = Axis(f[1,i], title=type, xlabel="Time [min]", ylabel="C-peptide [nmol/L]", backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false)
-
-        # conditional model
-
-        ## define model
-        model = CPeptideConditionalUDEModel(mean_glucose, test_data.timepoints, mean_age, network, mean_c_peptide[:], type == "T2DM")
-        
-        ## estimate beta
-        optsol = train([model], test_data.timepoints, mean_c_peptide, neural_network_parameters[best_model_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
-        beta = optsol[1].u[1]
-
-        # simulate the model
-        sol = Array(solve(model.problem, Tsit5(), p=ComponentArray(conditional=[beta], neural=neural_network_parameters[best_model_index]), saveat=plot_timepoints, save_idxs=1))
-
-        lines!(ax, plot_timepoints, sol, color=(COLORS[type], 1), linewidth=2, label="cUDE", linestyle=:solid)
-
-        # non-conditional model
-        ## define model
-        model = CPeptideUDEModel(mean_glucose, test_data.timepoints, mean_age, neural_network_nc, mean_c_peptide[:],type == "T2DM")
-        sol = Array(solve(model.problem, Tsit5(), p=neural_network_parameters_nc, saveat=plot_timepoints, save_idxs=1))
-        lines!(ax, plot_timepoints, sol, color=(COLORS[type], 1), linewidth=2, label="UDE", linestyle=:dash)
-
-        scatter!(ax, test_data.timepoints, mean_c_peptide[:], color=(:black, 1), markersize=8, label="Data (mean ± std)")
-        errorbars!(ax, test_data.timepoints, mean_c_peptide[:], std_c_peptide, color=(:black, 1), whiskerwidth=7, label="Data (mean ± std)", linewidth=1.5)
-        push!(axs, ax)
-    end
-    linkyaxes!(axs...)
-
-    # add legend
-    legend = Legend(f[2, 1:3], axs[1], merge=true, orientation = :horizontal, fontsize=8pt, font = FONTS)
-
-    f
-
-end
-
-save("figures/revision/figure_sx/comparison.png", figure_comparison, px_per_unit=300/inch)
-
-# save("figures/other_betas.png", figure_other_betas, px_per_unit=4)
-
-# #if MANUSCRIPT_FIGURES
-
-
-
-#     model_fit_figure = let fig
-#         fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
-#         ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
-#         gb = GridLayout(fig[1,4], nrow=1, ncol=1)
-#         # do the simulations
-#         sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
-#         sols = [Array(solve(model.problem, p=ComponentArray(conditional=[betas_test[i]], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
-        
-#         axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(test_data.types))]
-
-#         for (i,type) in enumerate(unique(test_data.types))
-
-#             type_indices = test_data.types .== type
-
-#             c_peptide_data = test_data.cpeptide[type_indices,:]
-
-#             sol_idx = findfirst(objectives_test[type_indices] .== median(objectives_test[type_indices]))
-
-#             # find the median fit of the type
-#             sol_type = sols[type_indices][sol_idx]
-
-#             lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:dot)
-#             scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=5, label="Data")
-
-#         end
-
-#         linkyaxes!(axs...)
-
-#         ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="MSE")
-
-#         jitter_width = 0.1
-
-#         for (i, type) in enumerate(unique(train_data.types))
-#             jitter = rand(length(objectives_test)) .* jitter_width .- jitter_width/2
-#             type_indices = test_data.types .== type
-#             scatter!(ax, repeat([i-1], length(objectives_test[type_indices])) .+ jitter[type_indices] .- 0.1, objectives_test[type_indices], color=(COLORS[type], 0.8), markersize=3, label=type)
-#             violin!(ax, repeat([i-1], length(objectives_test[type_indices])) .+ 0.05, objectives_test[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
-#         end
-
-#     #  boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), objectives_test[test_data.types .== "NGT"], color=COLORS["NGT"], width=0.75)
-#     # boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),objectives_test[test_data.types .== "IGT"], color=COLORS["IGT"], width=0.75)
-#     # boxplot!(ax, repeat([2], sum(test_data.types .== "T2DM")),objectives_test[test_data.types .== "T2DM"], color=COLORS["T2DM"], width=0.75)
-
-#         Legend(fig[2,1:3], axs[1], orientation=:horizontal)
-
-
-
-#     fig
-#     end
-
-#     save("figures/model_fit_test_median.$extension", model_fit_figure, px_per_unit=4)
+save("figures/model_fit_test_covariate_median.$extension", model_fit_figure, px_per_unit=4)
 
 #     model_fit_all_test = let fig
 #         fig = Figure(size = (1000, 1500))
 #         sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
-#         sols = [Array(solve(model.problem, p=ComponentArray(conditional=betas_test[i], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
+#         sols = [Array(solve(model.problem, p=ComponentArray(ode=betas_test[i], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
         
 #         n = length(models_test)
 #         n_col = 5
