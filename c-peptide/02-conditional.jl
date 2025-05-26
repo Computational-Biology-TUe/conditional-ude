@@ -98,6 +98,7 @@ if MAKE_FIGURES
     sigmas_train = [optsol.u.sigma for optsol in optsols]
     objectives_train = ([optsol.objective for optsol in optsols] .- (length(train_data.timepoints)/2) .* log.(sigmas_train.^2)) .* (2 .* sigmas_train.^2)
 
+
     # obtain the betas for the test data
     t2dm = test_data.types .== "T2DM"
     models_test = [
@@ -108,6 +109,14 @@ if MAKE_FIGURES
     betas_test = [optsol.u.ode[1] for optsol in optsols]
     sigmas_test = [optsol.u.sigma for optsol in optsols]
     objectives_test = ([optsol.objective for optsol in optsols] .- (length(test_data.timepoints)/2) .* log.(sigmas_test.^2)) .* (2 .* sigmas_test.^2)
+
+    for type in unique(train_data.types)
+    type_indices = [train_data.types; test_data.types] .== type
+    println("Type: ", type)
+    mse_values_type = [objectives_train; objectives_test][type_indices]
+    println("MSE: ", mean(mse_values_type))
+    end
+
 
     model_fit_figure = let fig = Figure(size = (linewidth*0.9, 6cm), fontsize=8pt, fonts=FONTS)
         # do the simulations
@@ -229,30 +238,310 @@ if MAKE_FIGURES
     save("figures/revision/figure_4/correlation.svg", correlation_figure, px_per_unit=300/inch)
 
 
-   
+    additional_correlation_figure = let fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
 
-end
+        correlation_first = corspearman([betas_train; betas_test], [train_data.second_phase; test_data.second_phase])
+        correlation_second = corspearman([betas_train; betas_test], [train_data.body_weights; test_data.body_weights])
+        correlation_total = corspearman([betas_train; betas_test], [train_data.bmis; test_data.bmis])
+        correlation_isi = corspearman([betas_train; betas_test], [train_data.disposition_indices; test_data.disposition_indices])
 
-# Figure Sj - likelihood profiles
-figure_likelihood_profiles = let f = Figure(size=(7cm, 7cm), fontsize=8pt, fonts=FONTS)
+        markers=[:circle, :utriangle, :rect]
+        MAKERS = Dict(
+            "NGT" => :circle,
+            "IGT" => :utriangle,
+            "T2DM" => :rect
+        )
+        MARKERSIZES = Dict(
+            "NGT" => 9,
+            "IGT" => 9,
+            "T2DM" => 9
+        )
 
-    ax = Axis(f[1,1], xlabel="Δβ", ylabel="ΔLikelihood", xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false)
-    for (i, model) in enumerate(models_train)
-        timepoints = train_data.timepoints
-        cpeptide_data = train_data.cpeptide[i,:]
-        lower_bound = betas_train[i] - 5.0
-        upper_bound = betas_train[i] + 3.0
+        ga = GridLayout(fig[1,1])
+        gb = GridLayout(fig[1,2])
+        gc = GridLayout(fig[1,3])
+        gd = GridLayout(fig[1,4])
 
-        loss_values, loss_minimum, parameter_values = likelihood_profile(betas_train[i], neural_network_parameters[best_model_index], model, timepoints, cpeptide_data, lower_bound, upper_bound, sigmas_train[i]; steps=10_000)
+        ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "2ⁿᵈ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
 
-        lines!(ax, range(-5.0, stop=3.0, length=10000), loss_values .- loss_minimum, color=(COLORS[train_data.types[i]], 0.2), label="Likelihood profile")
+        scatter!(ax_first, exp.(betas_train), train_data.second_phase, color = (:black, 0.2), markersize=6, label="Train Data", marker=:star5)
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax_first, exp.(betas_test[type_indices]), test_data.second_phase[type_indices], color=COLORS[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
+        end
+
+        ax_second = Axis(gb[1,1], xlabel="βᵢ", ylabel= "Body weight [kg]", title="ρ = $(round(correlation_second, digits=4))")
+
+        scatter!(ax_second, exp.(betas_train), train_data.body_weights, color = (:black, 0.2), markersize=6, label="Train", marker=:star5)
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax_second, exp.(betas_test[type_indices]), test_data.body_weights[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
+        end
+
+        ax_di = Axis(gc[1,1], xlabel="βᵢ", ylabel= "BMI [kg/m²]", title="ρ = $(round(correlation_total, digits=4))")
+
+        scatter!(ax_di, exp.(betas_train), train_data.bmis, color = (:black, 0.2), markersize=6, label="Train", marker=:star5)
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax_di, exp.(betas_test[type_indices]), test_data.bmis[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
+        end
+
+
+        ax_isi = Axis(gd[1,1], xlabel="βᵢ", ylabel= "Clamp DI", title="ρ = $(round(correlation_isi, digits=4))")
+
+            scatter!(ax_isi, exp.(betas_train), train_data.disposition_indices, color = (:black, 0.2), markersize=6, label="Train", marker=:star5)
+            for (i,type) in enumerate(unique(test_data.types))
+                type_indices = test_data.types .== type
+                scatter!(ax_isi, exp.(betas_test[type_indices]), test_data.disposition_indices[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
+            end
+
+        Legend(fig[2,1:4], ax_first, orientation=:horizontal)
+
+        for (label, layout) in zip(["a", "b", "c", "d"], [ga, gb, gc, gd])
+            Label(layout[1, 1, TopLeft()], label,
+            fontsize = 12,
+            font = :bold,
+            padding = (0, 20, 8, 0),
+            halign = :right)
+        end
+        
+        fig
     end
 
-    ylims!(ax, 0.0, 10.0)
-    hlines!(ax, 7.16,-3.0,3.0, color=(Makie.wong_colors()[1], 1), label="95% Cantelli Threshold", linestyle=:dash, linewidth=2.5)
+    save("figures/revision/supplementary/correlation_sup.png", additional_correlation_figure, px_per_unit=300/inch)
+    save("figures/revision/supplementary/correlation_sup.eps", additional_correlation_figure, px_per_unit=300/inch)
 
+    # Figure Sj - likelihood profiles
+    figure_likelihood_profiles = let f = Figure(size=(14cm, 7cm), fontsize=8pt, fonts=FONTS)
+
+        ax = Axis(f[1,1], xlabel="Δβ", ylabel="ΔLikelihood", xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false)
+
+        models = [models_train; models_test]
+        betas = [betas_train; betas_test]
+        cpeptide = [train_data.cpeptide; test_data.cpeptide]
+        sigmas = [sigmas_train; sigmas_test]
+        n_identifiable = 0; n_practically_identifiable = 0; n_unidentifiable = 0
+        plots = []
+        for (i, model) in enumerate(models)
+            timepoints = train_data.timepoints
+            cpeptide_data = cpeptide[i,:]
+            lower_bound = betas[i] - 10.0
+            upper_bound = betas[i] + 10.0
+
+            loss_values, loss_minimum, parameter_values = likelihood_profile(betas[i], neural_network_parameters[best_model_index], model, timepoints, cpeptide_data, lower_bound, upper_bound, sigmas[i]; steps=1000)
+
+            # check identifiability
+            Δloss = loss_values .- loss_minimum
+            lower_bound = findfirst(Δloss .<= 7.16)
+            upper_bound = findlast(Δloss .<= 7.16)
+
+            if lower_bound == 1 && upper_bound == length(Δloss)
+                # unidentifiable
+                linecolor = (Makie.wong_colors()[4], 1.0)
+                label = "Unidentifiable"
+                n_unidentifiable += 1
+            elseif lower_bound == 1 || upper_bound == length(Δloss)
+                # practically unidentifiable
+                linecolor = (Makie.wong_colors()[1], 1.0)
+                label = "Practically unidentifiable"
+                n_practically_identifiable += 1
+            else
+                # identifiable
+                linecolor = (Makie.wong_colors()[2], 0.1)
+                label = "Identifiable"
+                n_identifiable += 1
+            end
+
+            push!(plots, (loss_values .- loss_minimum, label, linecolor))
+        end
+
+        for plot in plots
+            parameter_values = range(-10, 10, length(plot[1]))
+            if plot[2] == "Identifiable"
+                lines!(ax, parameter_values, plot[1], color=plot[3], label="Identifiable (n = $n_identifiable)")
+            elseif plot[2] == "Practically unidentifiable"
+                lines!(ax, parameter_values, plot[1], color=plot[3], label="Practically unidentifiable (n = $n_practically_identifiable)")
+            else
+                lines!(ax, parameter_values, plot[1], color=plot[3], label="Unidentifiable (n = $n_unidentifiable)")
+            end
+        end
+
+        ylims!(ax, 0.0, 10.0)
+        hlines!(ax, 7.16,-3.0,3.0, color=(Makie.wong_colors()[3], 1), label="95% Cantelli Threshold", linestyle=:dash, linewidth=2.5)
+        Legend(f[1,2], ax, orientation=:vertical, merge=true)
+
+        f
+    end
+
+    save("figures/revision/supplementary/likelihood_curves.png", figure_likelihood_profiles, px_per_unit=300/inch)
+    save("figures/revision/supplementary/likelihood_curves.svg", figure_likelihood_profiles, px_per_unit=300/inch)
+    save("figures/revision/supplementary/likelihood_curves.eps", figure_likelihood_profiles, px_per_unit=300/inch)
+
+
+   figure_other_betas = let f = Figure(size = (1000, 1000), fontsize=8pt)
+        other_betas = betas
+        g = GridLayout(f[1, 1], nrow=5, ncol=5)
+        axs = [Axis(g[1 + (i-1) ÷ 5, 1 + (i-1) % 5], xlabel="βᵢ", ylabel="First Phase Clamp", title="Model $(i)") for i in eachindex(betas)]
+        for (i,b) in enumerate(other_betas)
+            correlation = corspearman(exp.(b), train_data.first_phase[indices_train])
+            println("Model $(i): ", correlation)
+            background_color = correlation > 0.0 ? (COLORS["T2DM"], 0.1) : (COLORS["IGT"], 0.1)
+            axs[i].backgroundcolor = background_color
+            scatter!(axs[i], exp.(b), train_data.first_phase[indices_train], color = (:black, 0.9), markersize=6, marker=:circle)
+        end
     f
+    end
+
+    save("figures/revision/supplementary/other_betas.png", figure_other_betas, px_per_unit=300/inch)
+    save("figures/revision/supplementary/other_betas.svg", figure_other_betas, px_per_unit=300/inch)
+    save("figures/revision/supplementary/other_betas.eps", figure_other_betas, px_per_unit=300/inch)
+
+
+    model_fit_train = let fig
+        fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
+        ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
+        gb = GridLayout(fig[1,4], nrow=1, ncol=1)
+
+        # do the simulations
+        sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
+        sols = [Array(solve(model.problem, p=ComponentArray(conditional=[betas_train[i]], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_train)]
+        
+        axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(train_data.types))]
+
+        for (i,type) in enumerate(unique(train_data.types))
+
+            type_indices = train_data.types .== type
+
+            c_peptide_data = train_data.cpeptide[type_indices,:]
+
+            sol_idx = argmedian(objectives_train[type_indices])
+
+            # find the median fit of the type
+            sol_type = sols[type_indices][sol_idx]
+# obtain confidence intervals with likelihood profiles
+            loss_values, loss_minimum, parameter_values = likelihood_profile(
+                betas_train[type_indices][sol_idx], neural_network_parameters[best_model_index], models_train[type_indices][sol_idx], test_data.timepoints, c_peptide_data[sol_idx,:], betas_train[type_indices][sol_idx]-10, betas_train[type_indices][sol_idx]+15, sigmas_train[type_indices][sol_idx]; steps=10_000
+            )
+
+            # find the 95% confidence interval
+            min_parameter, max_parameter = find_confidence_intervals(
+                loss_values, loss_minimum, parameter_values
+            )
+
+            # compute the solution with the lower and upper bounds
+            sol_lower = Array(solve(models_train[type_indices][sol_idx].problem, p=ComponentArray(conditional=[min_parameter], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1))
+
+            lines!(axs[i], sol_timepoints, sol_lower[:,1], color=(COLORS[type], 0.5), linewidth=1, label="95% CI", linestyle=:dot)
+
+            if !isinf(max_parameter)
+                sol_upper = Array(solve(models_train[type_indices][sol_idx].problem, p=ComponentArray(conditional=[max_parameter], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1))
+
+                lines!(axs[i], sol_timepoints, sol_upper[:,1], color=(COLORS[type], 0.5), linewidth=1, label="95% CI", linestyle=:dot)
+            end
+
+            lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=2, label="Model fit", linestyle=:solid)
+            scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=7, label="Data")
+
+        end
+
+        linkyaxes!(axs...)
+
+        ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
+    
+        jitter_width = 0.1
+
+        for (i, type) in enumerate(unique(train_data.types))
+            jitter = rand(length(objectives_train)) .* jitter_width .- jitter_width/2
+            type_indices = train_data.types .== type
+            scatter!(ax, repeat([i-1], length(objectives_train[type_indices])) .+ jitter[type_indices] .- 0.1, objectives_train[type_indices], color=(COLORS[type], 0.8), markersize=3, label=type)
+            violin!(ax, repeat([i-1], length(objectives_train[type_indices])) .+ 0.05, objectives_train[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
+        end
+    
+        # boxplot!(ax, repeat([0], sum(train_data.types .== "NGT")), log10.(objectives_train[train_data.types .== "NGT"]), color=COLORS["NGT"], width=0.75)
+        # boxplot!(ax, repeat([1], sum(train_data.types .== "IGT")),log10.(objectives_train[train_data.types .== "IGT"]), color=COLORS["IGT"], width=0.75)
+        # boxplot!(ax, repeat([2], sum(train_data.types .== "T2DM")),log10.(objectives_train[train_data.types .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
+
+        Legend(fig[2,1:3], axs[1], orientation=:horizontal, merge=true)
+
+        for (label, layout) in zip(["a", "b", "c", "d"], [ga; gb])
+            Label(layout[1, 1, TopLeft()], label,
+            fontsize = 12,
+            font = :bold,
+            padding = (0, 20, 12, 0),
+            halign = :right)
+        end
+
+    fig
+    end
+
+    save("figures/revision/supplementary/model_fit_train_median.eps", model_fit_train, px_per_unit=4)
+    save("figures/revision/supplementary/model_fit_train_median.svg", model_fit_train, px_per_unit=4)
+    save("figures/revision/supplementary/model_fit_train_median.png", model_fit_train, px_per_unit=4)
+
+    
+
 end
+
+
+model_fit_all_test = let fig
+    fig = Figure(size = (1000, 1500))
+    sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
+    sols = [Array(solve(model.problem, p=ComponentArray(conditional=[betas_test[i]], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
+    
+    n = length(models_test)
+    n_col = 5
+    locations = [
+        ((i - 1 + n_col) ÷ n_col, (n_col + i - 1) % n_col) for i in 1:n
+    ]
+    grids = [GridLayout(fig[loc[1], loc[2]]) for loc in locations]
+
+    axs = [Axis(gx[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]", title="Test Subject $(i) ($(test_data.types[i]))") for (i,gx) in enumerate(grids)]
+
+    for (i, (sol, ax)) in enumerate(zip(sols, axs))
+
+        c_peptide_data = test_data.cpeptide[i,:]
+        type = test_data.types[i]
+
+
+        loss_values, loss_minimum, parameter_values = likelihood_profile(
+                betas_test[i], neural_network_parameters[best_model_index], models_test[i], test_data.timepoints, c_peptide_data, betas_test[i]-10, betas_test[i]+15, sigmas_test[i]; steps=10_000
+            )
+
+        # find the 95% confidence interval
+        min_parameter, max_parameter = find_confidence_intervals(
+            loss_values, loss_minimum, parameter_values
+        )
+
+        # compute the solution with the lower and upper bounds
+        if !isinf(min_parameter)
+            sol_lower = Array(solve(models_test[i].problem, p=ComponentArray(conditional=[min_parameter], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1))
+
+            lines!(ax, sol_timepoints, sol_lower[:,1], color=(:black, 0.8), linewidth=1, label="95% CI", linestyle=:dot)
+        end
+
+        if !isinf(max_parameter)
+            sol_upper = Array(solve(models_test[i].problem, p=ComponentArray(conditional=[max_parameter], neural=neural_network_parameters[best_model_index]), saveat=sol_timepoints, save_idxs=1))
+
+            lines!(ax, sol_timepoints, sol_upper[:,1], color=(:black, 0.8), linewidth=1, label="95% CI", linestyle=:dot)
+        end
+
+
+        lines!(ax, sol_timepoints, sol[:,1], color=(:black, 1), linewidth=2, label="Model fit", linestyle=:solid)
+        scatter!(ax, test_data.timepoints, c_peptide_data , color=(:black, 1), markersize=10, label="Data")
+
+    end
+
+    linkyaxes!(axs...)
+
+    Legend(fig[locations[end][1]+1, 0:4], axs[1], orientation=:horizontal, merge=true)
+
+    fig
+end
+
+save("figures/revision/supplementary/model_fit_test_all.eps", model_fit_all_test, px_per_unit=4)
+save("figures/revision/supplementary/model_fit_test_all.svg", model_fit_all_test, px_per_unit=4)
+save("figures/revision/supplementary/model_fit_test_all.png", model_fit_all_test, px_per_unit=4)
+
 
 # Figure Sx - beta distribution and sampled parameters
 figure_beta_distribution = let f = Figure(size=(8cm, 7cm), fontsize=8pt, fonts=FONTS)
@@ -322,10 +611,10 @@ figure_sampled_simulations = let f = Figure(size=(16cm, 7cm), fontsize=8pt, font
     f
 end
 
-save("figures/revision/figure_sx/beta_distribution.png", figure_beta_distribution, px_per_unit=300/inch)
-save("figures/revision/figure_sx/sampled_simulations.png", figure_sampled_simulations, px_per_unit=300/inch)
-save("figures/revision/figure_sx/beta_distribution.svg", figure_beta_distribution, px_per_unit=300/inch)
-save("figures/revision/figure_sx/sampled_simulations.svg", figure_sampled_simulations, px_per_unit=300/inch)
+save("figures/revision/supplementary/beta_distribution.png", figure_beta_distribution, px_per_unit=300/inch)
+save("figures/revision/supplementary/sampled_simulations.png", figure_sampled_simulations, px_per_unit=300/inch)
+save("figures/revision/supplementary/beta_distribution.svg", figure_beta_distribution, px_per_unit=300/inch)
+save("figures/revision/supplementary/sampled_simulations.svg", figure_sampled_simulations, px_per_unit=300/inch)
 
 
 figure_second_best_correlation = let f = Figure(size=(6cm, 6cm), fontsize=8pt, fonts=FONTS)
@@ -346,7 +635,7 @@ figure_second_best_correlation = let f = Figure(size=(6cm, 6cm), fontsize=8pt, f
     ub = maximum(betas[second_best_index]) + 0.1*abs(maximum(betas[second_best_index]))
 
     optsols = train(models_train, train_data.timepoints, train_data.cpeptide, neural_network_parameters[second_best_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
-    betas_train = [optsol.u[1] for optsol in optsols]
+    betas_train_2 = [optsol.u[1] for optsol in optsols]
     objectives_train = [optsol.objective for optsol in optsols]
 
     # obtain the betas for the test data
@@ -356,38 +645,24 @@ figure_second_best_correlation = let f = Figure(size=(6cm, 6cm), fontsize=8pt, f
     ]
 
     optsols = train(models_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters[second_best_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
-    betas_test = [optsol.u[1] for optsol in optsols]
+    betas_test_2 = [optsol.u[1] for optsol in optsols]
     objectives_test = [optsol.objective for optsol in optsols]
 
-    correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
+    correlation_first = corspearman([betas_train_2; betas_test_2], [betas_train; betas_test])
 
-    ax = Axis(f[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
+    ax = Axis(f[1,1], xlabel="βᵢ Model 2", ylabel= "βᵢ Model 1", title="ρ = $(round(correlation_first, digits=4))")
 
-    scatter!(ax, exp.(betas_train), train_data.first_phase, color = (:black, 0.2), markersize=6, label="Train Data", marker=:star5)
+    scatter!(ax, exp.(betas_train_2), exp.(betas_train), color = (:black, 0.2), markersize=6, label="Train Data", marker=:star5)
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = test_data.types .== type
-        scatter!(ax, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], color=COLORS[type], label="Test $type", marker=MARKERS[type], markersize=MARKERSIZES[type])
+        scatter!(ax, exp.(betas_test_2[type_indices]),  exp.(betas_test[type_indices]), color=COLORS[type], label="Test $type", marker=MARKERS[type], markersize=MARKERSIZES[type])
     end
 
     f
 end
 
-figure_other_betas = let f = Figure(size = (1000, 1000), fontsize=8pt)
-    other_betas = betas
-    g = GridLayout(f[1, 1], nrow=5, ncol=5)
-    axs = [Axis(g[1 + (i-1) ÷ 5, 1 + (i-1) % 5], xlabel="βᵢ", ylabel="First Phase Clamp", title="$(i)") for i in eachindex(betas)]
-    println(length(axs))
-    for (i,b) in enumerate(other_betas)
-        correlation = corspearman(exp.(b), train_data.first_phase[indices_train])
-        background_color = correlation > 0.0 ? (COLORS["T2DM"], 0.1) : (COLORS["IGT"], 0.1)
-        axs[i].backgroundcolor = background_color
-        scatter!(axs[i], exp.(b), train_data.first_phase[indices_train], color = (:black, 0.9), markersize=6, marker=:circle)
-    end
-f
-end
 
-save("figures/revision/figure_s8/other_betas.png", figure_other_betas, px_per_unit=300/inch)
-save("figures/revision/figure_s8/second_best_correlation.png", figure_second_best_correlation, px_per_unit=300/inch)
+save("figures/revision/figure_s8/second_best_correlation_comparison.png", figure_second_best_correlation, px_per_unit=300/inch)
 
 # Figure comparison with non-conditional model
 figure_comparison = let f = Figure(size=(16cm, 7cm), fontsize=8pt, fonts=FONTS, backgroundcolor=:transparent)
@@ -546,64 +821,7 @@ save("figures/revision/figure_sx/comparison.png", figure_comparison, px_per_unit
 
 #     save("figures/supplementary/model_fit_test_all.$extension", model_fit_all_test, px_per_unit=4)
 
-#     model_fit_train = let fig
-#         fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
-#         ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
-#         gb = GridLayout(fig[1,4], nrow=1, ncol=1)
 
-#         # do the simulations
-#         sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
-#         sols = [Array(solve(model.problem, p=ComponentArray(ode=betas_train[i], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_train)]
-        
-#         axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(train_data.types))]
-
-#         for (i,type) in enumerate(unique(train_data.types))
-
-#             type_indices = train_data.types .== type
-
-#             c_peptide_data = train_data.cpeptide[type_indices,:]
-
-#             sol_idx = argmedian(objectives_train[type_indices])
-
-#             # find the median fit of the type
-#             sol_type = sols[type_indices][sol_idx]
-
-#             lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:dot)
-#             scatter!(axs[i], train_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=5, label="Data")
-
-#         end
-
-#         linkyaxes!(axs...)
-
-#         ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
-    
-#         jitter_width = 0.1
-
-#         for (i, type) in enumerate(unique(train_data.types))
-#             jitter = rand(length(objectives_train)) .* jitter_width .- jitter_width/2
-#             type_indices = train_data.types .== type
-#             scatter!(ax, repeat([i-1], length(objectives_train[type_indices])) .+ jitter[type_indices] .- 0.1, objectives_train[type_indices], color=(COLORS[type], 0.8), markersize=3, label=type)
-#             violin!(ax, repeat([i-1], length(objectives_train[type_indices])) .+ 0.05, objectives_train[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
-#         end
-    
-#         # boxplot!(ax, repeat([0], sum(train_data.types .== "NGT")), log10.(objectives_train[train_data.types .== "NGT"]), color=COLORS["NGT"], width=0.75)
-#         # boxplot!(ax, repeat([1], sum(train_data.types .== "IGT")),log10.(objectives_train[train_data.types .== "IGT"]), color=COLORS["IGT"], width=0.75)
-#         # boxplot!(ax, repeat([2], sum(train_data.types .== "T2DM")),log10.(objectives_train[train_data.types .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
-
-#         Legend(fig[2,1:3], axs[1], orientation=:horizontal)
-
-#         for (label, layout) in zip(["a", "b", "c", "d"], [ga; gb])
-#             Label(layout[1, 1, TopLeft()], label,
-#             fontsize = 12,
-#             font = :bold,
-#             padding = (0, 20, 12, 0),
-#             halign = :right)
-#         end
-
-#     fig
-#     end
-
-#     save("figures/supplementary/model_fit_train_median.$extension", model_fit_train, px_per_unit=4)
 
 
 #     # Correlation figure; 1st phase clamp, age, insulin sensitivity 
@@ -674,75 +892,7 @@ save("figures/revision/figure_sx/comparison.png", figure_comparison, px_per_unit
 #     save("figures/correlations_cude.$extension", correlation_figure, px_per_unit=4)
 
 #     # supplementary correlation: 2nd phase clamp, body weight, bmi, disposition index
-#     additional_correlation_figure = let fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
-
-#     correlation_first = corspearman([betas_train; betas_test], [train_data.second_phase; test_data.second_phase])
-#     correlation_second = corspearman([betas_train; betas_test], [train_data.body_weights; test_data.body_weights])
-#     correlation_total = corspearman([betas_train; betas_test], [train_data.bmis; test_data.bmis])
-#     correlation_isi = corspearman([betas_train; betas_test], [train_data.disposition_indices; test_data.disposition_indices])
-
-#     markers=['●', '▴', '■']
-#     MAKERS = Dict(
-#         "NGT" => '●',
-#         "IGT" => '▴',
-#         "T2DM" => '■'
-#     )
-#     MARKERSIZES = Dict(
-#         "NGT" => 5,
-#         "IGT" => 9,
-#         "T2DM" => 5
-#     )
-
-#     ga = GridLayout(fig[1,1])
-#     gb = GridLayout(fig[1,2])
-#     gc = GridLayout(fig[1,3])
-#     gd = GridLayout(fig[1,4])
-
-#     ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "2ⁿᵈ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
-
-#     scatter!(ax_first, exp.(betas_train), train_data.second_phase, color = (:black, 0.2), markersize=10, label="Train Data", marker='⋆')
-#     for (i,type) in enumerate(unique(test_data.types))
-#         type_indices = test_data.types .== type
-#         scatter!(ax_first, exp.(betas_test[type_indices]), test_data.second_phase[type_indices], color=COLORS[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
-#     end
-
-#     ax_second = Axis(gb[1,1], xlabel="βᵢ", ylabel= "Body weight [kg]", title="ρ = $(round(correlation_second, digits=4))")
-
-#     scatter!(ax_second, exp.(betas_train), train_data.body_weights, color = (:black, 0.2), markersize=10, label="Train", marker='⋆')
-#     for (i,type) in enumerate(unique(test_data.types))
-#         type_indices = test_data.types .== type
-#         scatter!(ax_second, exp.(betas_test[type_indices]), test_data.body_weights[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
-#     end
-
-#     ax_di = Axis(gc[1,1], xlabel="βᵢ", ylabel= "BMI [kg/m²]", title="ρ = $(round(correlation_total, digits=4))")
-
-#     scatter!(ax_di, exp.(betas_train), train_data.bmis, color = (:black, 0.2), markersize=10, label="Train", marker='⋆')
-#     for (i,type) in enumerate(unique(test_data.types))
-#         type_indices = test_data.types .== type
-#         scatter!(ax_di, exp.(betas_test[type_indices]), test_data.bmis[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
-#     end
-
-
-#     ax_isi = Axis(gd[1,1], xlabel="βᵢ", ylabel= "Clamp DI", title="ρ = $(round(correlation_isi, digits=4))")
-
-#         scatter!(ax_isi, exp.(betas_train), train_data.disposition_indices, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
-#         for (i,type) in enumerate(unique(test_data.types))
-#             type_indices = test_data.types .== type
-#             scatter!(ax_isi, exp.(betas_test[type_indices]), test_data.disposition_indices[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
-#         end
-
-#     Legend(fig[2,1:4], ax_first, orientation=:horizontal)
-
-#     for (label, layout) in zip(["a", "b", "c", "d"], [ga, gb, gc, gd])
-#         Label(layout[1, 1, TopLeft()], label,
-#         fontsize = 12,
-#         font = :bold,
-#         padding = (0, 20, 8, 0),
-#         halign = :right)
-#     end
-    
-#     fig
-#     end
+#     
 
 #     save("figures/supplementary/correlations_other_cude.$extension", additional_correlation_figure, px_per_unit=4)
 

@@ -15,6 +15,13 @@ COLORS = Dict(
     "IGT" => RGBf(201/255, 78/255, 0/255)
 )
 
+    FONTS = (
+    ; regular = "Fira Sans Light",
+    bold = "Fira Sans SemiBold",
+    italic = "Fira Sans Italic",
+    bold_italic = "Fira Sans SemiBold Italic",
+)
+
 rng = StableRNG(232705)
 
 include("../src/parameter-estimation.jl")
@@ -126,8 +133,8 @@ model_fit_figure = let fig
         # find the median fit of the type
         sol_type = sols[type_indices][sol_idx]
 
-        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:dot)
-        scatter!(axs[i], test_data.timepoints, cpeptide_data_type[sol_idx,:] , color=(COLORS[type], 1), markersize=5, label="Data")
+        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:solid)
+        scatter!(axs[i], test_data.timepoints, cpeptide_data_type[sol_idx,:] , color=(COLORS[type], 0.3), strokecolor=(COLORS[type], 1), strokewidth=1, markersize=5, label="Data")
 
         # run PLA
         loss_values, loss_minimum, parameter_values = likelihood_profile(
@@ -138,12 +145,12 @@ model_fit_figure = let fig
         if !isinf(min_parameter_value)
             # compute the solution with the lower and upper bounds
             sol_lower = Array(solve(all_models[type_indices][sol_idx].problem, p=[min_parameter_value], saveat=sol_timepoints, save_idxs=1))
-            lines!(axs[i], sol_timepoints, sol_lower[:,1], color=(COLORS[type], 0.5), linewidth=1, label="95% CI", linestyle=:dot)
+            lines!(axs[i], sol_timepoints, sol_lower[:,1], color=(COLORS[type], 0.9), linewidth=1, label="95% CI", linestyle=:dot)
         end 
         if !isinf(max_parameter_value)
             sol_upper = Array(solve(all_models[type_indices][sol_idx].problem, p=[max_parameter_value], saveat=sol_timepoints, save_idxs=1))
 
-            lines!(axs[i], sol_timepoints, sol_upper[:,1], color=(COLORS[type], 0.5), linewidth=1, label="95% CI", linestyle=:dot)
+            lines!(axs[i], sol_timepoints, sol_upper[:,1], color=(COLORS[type], 0.9), linewidth=1, label="95% CI", linestyle=:dot)
         end
 
     end
@@ -157,7 +164,7 @@ model_fit_figure = let fig
     for (i, type) in enumerate(unique(train_data.types))
         jitter = rand(length(objectives)) .* jitter_width .- jitter_width/2
         type_indices = [train_data.types .== type; test_data.types .== type]
-        scatter!(ax, repeat([i-1], length(objectives[type_indices])) .+ jitter[type_indices] .- 0.1, objectives[type_indices], color=(COLORS[type], 0.8), markersize=3, label=type)
+        scatter!(ax, repeat([i-1], length(objectives[type_indices])) .+ jitter[type_indices] .- 0.1, objectives[type_indices], color=(COLORS[type], 0.3), markersize=3, strokecolor=(COLORS[type], 1), strokewidth=0.25, label=type)
         violin!(ax, repeat([i-1], length(objectives[type_indices])) .+ 0.05, objectives[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
     end
 
@@ -168,15 +175,15 @@ model_fit_figure = let fig
     correlation_isi = corspearman(betas, [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
 
     markers=['●', '▴', '■']
-    MAKERS = Dict(
-        "NGT" => '●',
-        "IGT" => '▴',
-        "T2DM" => '■'
+    MARKERS = Dict(
+        "NGT" => :circle,
+        "IGT" => :utriangle,
+        "T2DM" => :rect
     )
     MARKERSIZES = Dict(
-        "NGT" => 5,
-        "IGT" => 9,
-        "T2DM" => 5
+        "NGT" => 7,
+        "IGT" => 7,
+        "T2DM" => 7
     )
 
     gc = GridLayout(fig[3,1:4])
@@ -187,7 +194,7 @@ model_fit_figure = let fig
     #scatter!(ax_first, exp.(betas), train_data.first_phase, color = (:black, 0.2), markersize=15, label="Train Data", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = [train_data.types; test_data.types] .== type
-        scatter!(ax_first, log10.(betas[type_indices]), [train_data.first_phase; test_data.first_phase][type_indices], color=COLORS[type], label="$type", marker=MAKERS[type], markersize=MARKERSIZES[type])
+        scatter!(ax_first, log10.(betas[type_indices]), [train_data.first_phase; test_data.first_phase][type_indices], color=(COLORS[type], 0.1), strokewidth=1, strokecolor=(COLORS[type], 0.7), label="$type", marker=MARKERS[type], markersize=MARKERSIZES[type])
     end
 
     ax_second = Axis(gcs[2][1,1], xlabel="log₁₀ [kₘ]", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
@@ -195,7 +202,7 @@ model_fit_figure = let fig
     #scatter!(ax_second, exp.(betas_train), train_data.ages, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = [train_data.types; test_data.types] .== type
-        scatter!(ax_second, log10.(betas[type_indices]), [train_data.ages; test_data.ages][type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
+        scatter!(ax_second, log10.(betas[type_indices]), [train_data.ages; test_data.ages][type_indices], color=(COLORS[type], 0.1), strokewidth=1, strokecolor=(COLORS[type], 0.7), label=type, marker=MARKERS[type], markersize=MARKERSIZES[type])
     end
 
     ax_di = Axis(gcs[3][1,1], xlabel="log₁₀ [kₘ]", ylabel= "Insulin Sensitivity Index", title="ρ = $(round(correlation_isi, digits=4))")
@@ -203,7 +210,7 @@ model_fit_figure = let fig
     #scatter!(ax_di, exp.(betas_train), train_data.insulin_sensitivity, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = [train_data.types; test_data.types] .== type
-        scatter!(ax_di, log10.(betas[type_indices]), [train_data.insulin_sensitivity; test_data.insulin_sensitivity][type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
+        scatter!(ax_di, log10.(betas[type_indices]), [train_data.insulin_sensitivity; test_data.insulin_sensitivity][type_indices], color=(COLORS[type], 0.1), strokewidth=1, strokecolor=(COLORS[type], 0.7), label=type, marker=MARKERS[type], markersize=MARKERSIZES[type])
     end
 
     Legend(fig[4,1:4], ax_first, orientation=:horizontal)

@@ -77,7 +77,7 @@ if MAKE_FIGURES
 
     
     # figure for error
-    figure_error = let f = Figure(size=(linewidth/3, 5cm), fontsize=8pt, fonts = FONTS)
+    figure_error = let f = Figure(size=(8cm, 5cm), fontsize=8pt, fonts = FONTS)
         ax = Axis(f[1,1], xlabel="", ylabel="MSE", xticks=([1,3],["Train set", "Test set"]))
         ax.xgridvisible = false
         ax.ygridvisible = true

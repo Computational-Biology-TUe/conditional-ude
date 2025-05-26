@@ -1,5 +1,5 @@
 # Model fit to the train data and evaluation on the test data
-extension = "png"
+extension = "eps"
 inch = 96
 pt = 4/3
 cm = inch / 2.54
@@ -57,7 +57,7 @@ end
 
 betas = [optsol.u.ode[1] for optsol in optsols]
 sigmas = [optsol.u.sigma for optsol in optsols]
-objectives = [optsol.objective for optsol in optsols]
+objectives = ([optsol.objective for optsol in optsols].- (length(timepoints)/2) .* log.(sigmas.^2)) .* (2 .* sigmas.^2)
 
 function argmedian(x)
     return argmin(abs.(x .- median(x)))
