@@ -1,5 +1,5 @@
 # Perform train test split, and prepare data into a convenient JLD2 file
-using CSV, DataFrames, JLD2, StableRNGs, StatsBase
+using CSV, DataFrames, JLD2, StableRNGs, StatsBase, HypothesisTests
 rng = StableRNG(270523)
 
 COLORS = Dict(
@@ -29,6 +29,11 @@ bmis = subject_info_filtered[!,:BMI]
 
 glucose_data = Matrix{Float64}(data_filtered[:, glucose_indices]) .* 0.0551 # convert to mmol/L
 cpeptide_data = Matrix{Float64}(data_filtered[:, cpeptide_indices]) .* 0.3311 # convert to nmol/L
+
+# test age differences
+ngt_igt = pvalue(MannWhitneyUTest(ages[types .== "NGT"], ages[types .== "IGT"]))
+t2dm_igt = pvalue(MannWhitneyUTest(ages[types .== "T2DM"], ages[types .== "IGT"]))
+t2dm_ngt = pvalue(MannWhitneyUTest(ages[types .== "T2DM"], ages[types .== "NGT"]))
 
 
 # figure illustrating the OGTT data

@@ -5,7 +5,14 @@ pt = 4/3
 cm = inch / 2.54
 linewidth = 13.07245cm
 
-MANUSCRIPT_FIGURES = false
+
+COLORS = Dict(
+    "T2DM" => RGBf(1/255, 120/255, 80/255),
+    "NGT" => RGBf(1/255, 101/255, 157/255),
+    "IGT" => RGBf(201/255, 78/255, 0/255)
+)
+
+MANUSCRIPT_FIGURES = true
 ECCB_FIGURES = true
 FONTS = (
     ; regular = "Fira Sans Light",
@@ -18,7 +25,9 @@ using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
 
 rng = StableRNG(232705)
 
-include("src/c-peptide-ude-models.jl")
+include("../src/parameter-estimation.jl")
+include("../src/utils.jl")
+include("../src/likelihood-profiles.jl")
 
 # Load the data
 glucose_data, cpeptide_data, timepoints = jldopen("data/fujita.jld2", "r") do file
@@ -27,7 +36,7 @@ end
 
 # define the production function 
 function production(ΔG, k)
-    prod = ΔG >= 0 ? 1.78ΔG/(ΔG + k) : 0.0
+    prod = ΔG >= 0 ? 1.78ΔG/(ΔG + k[1]) : 0.0
     return prod
 end
 
@@ -37,17 +46,18 @@ models = [
 ]
 
 optsols = OptimizationSolution[]
-optfunc = OptimizationFunction(loss, AutoForwardDiff())
+optfunc = OptimizationFunction(loss_sigma, AutoForwardDiff())
 for (i,model) in enumerate(models)
 
-    optprob = OptimizationProblem(optfunc, [40.0], (model, timepoints, cpeptide_data[i,:]),
+    optprob = OptimizationProblem(optfunc, ComponentArray(ode=[40.0], sigma=1.0), (model, timepoints, cpeptide_data[i,:]),
     lb = 0.0, ub = 1000.0)
     optsol = Optimization.solve(optprob, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=1000)
     push!(optsols, optsol)
 end
 
-betas = [optsol.u[1] for optsol in optsols]
-objectives = [optsol.objective for optsol in optsols]
+betas = [optsol.u.ode[1] for optsol in optsols]
+sigmas = [optsol.u.sigma for optsol in optsols]
+objectives = ([optsol.objective for optsol in optsols].- (length(timepoints)/2) .* log.(sigmas.^2)) .* (2 .* sigmas.^2)
 
 function argmedian(x)
     return argmin(abs.(x .- median(x)))
@@ -77,13 +87,65 @@ if MANUSCRIPT_FIGURES
         lines!(ax1, sol_timepoints, sols[median_index], color=COLORS["NGT"], linestyle=:solid, linewidth=2, label="Model")
         scatter!(ax1, timepoints, cpeptide_data[median_index,:], color=:black, markersize=5, label="Data")
 
+        # run PLA
+        loss_values, loss_minimum, parameter_values = likelihood_profile(
+            betas[median_index], loss, (models[median_index], timepoints, cpeptide_data[median_index,:]), betas[median_index]-25, betas[median_index]+1000, sigmas[median_index]; steps=10_000
+        )
+        min_parameter_value, max_parameter_value = find_confidence_intervals(loss_values, loss_minimum, parameter_values; target=:cantelli95)
+        println(min_parameter_value, max_parameter_value)
+        if !isinf(min_parameter_value)
+            # compute the solution with the lower and upper bounds
+            sol_lower = Array(solve(models[median_index].problem, p=[min_parameter_value], saveat=sol_timepoints, save_idxs=1))
+            lines!(ax1, sol_timepoints, sol_lower[:,1], color=(COLORS["NGT"], 0.5), linewidth=1.5, label="95% CI", linestyle=:dot)
+        end 
+        if !isinf(max_parameter_value)
+            sol_upper = Array(solve(models[median_index].problem, p=[max_parameter_value], saveat=sol_timepoints, save_idxs=1))
+
+            lines!(ax1, sol_timepoints, sol_upper[:,1], color=(COLORS["NGT"], 0.5), linewidth=1.5, label="95% CI", linestyle=:dot)
+        end
+
         ax2 = Axis(ga[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]", title="25%")
         lines!(ax2, sol_timepoints, sols[lquantile_index], color=COLORS["NGT"], linestyle=:solid, linewidth=2, label="Model")
         scatter!(ax2, timepoints, cpeptide_data[lquantile_index,:], color=:black, markersize=5, label="Data")
 
+        # run PLA
+        loss_values, loss_minimum, parameter_values = likelihood_profile(
+            betas[lquantile_index], loss, (models[lquantile_index], timepoints, cpeptide_data[lquantile_index,:]), betas[lquantile_index]-25, betas[lquantile_index]+1000, sigmas[lquantile_index]; steps=10_000
+        )
+        min_parameter_value, max_parameter_value = find_confidence_intervals(loss_values, loss_minimum, parameter_values; target=:cantelli95)
+        println(min_parameter_value, max_parameter_value)
+        if !isinf(min_parameter_value)
+            # compute the solution with the lower and upper bounds
+            sol_lower = Array(solve(models[lquantile_index].problem, p=[min_parameter_value], saveat=sol_timepoints, save_idxs=1))
+            lines!(ax2, sol_timepoints, sol_lower[:,1], color=(COLORS["NGT"], 0.5), linewidth=1.5, label="95% CI", linestyle=:dot)
+        end 
+        if !isinf(max_parameter_value)
+            sol_upper = Array(solve(models[lquantile_index].problem, p=[max_parameter_value], saveat=sol_timepoints, save_idxs=1))
+
+            lines!(ax2, sol_timepoints, sol_upper[:,1], color=(COLORS["NGT"], 0.5), linewidth=1.5, label="95% CI", linestyle=:dot)
+        end
+
         ax3 = Axis(gc[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]", title="75%")
         lines!(ax3, sol_timepoints, sols[uquantile_index], color=COLORS["NGT"], linestyle=:solid, linewidth=2, label="Model")
         scatter!(ax3, timepoints, cpeptide_data[uquantile_index,:], color=:black, markersize=5, label="Data")
+
+        # run PLA
+        loss_values, loss_minimum, parameter_values = likelihood_profile(
+            betas[uquantile_index], loss, (models[uquantile_index], timepoints, cpeptide_data[uquantile_index,:]), betas[uquantile_index]-25, betas[uquantile_index]+1000, sigmas[uquantile_index]; steps=10_000
+        )
+        min_parameter_value, max_parameter_value = find_confidence_intervals(loss_values, loss_minimum, parameter_values; target=:cantelli95)
+        println(min_parameter_value, max_parameter_value)
+        if !isinf(min_parameter_value)
+            # compute the solution with the lower and upper bounds
+            sol_lower = Array(solve(models[uquantile_index].problem, p=[min_parameter_value], saveat=sol_timepoints, save_idxs=1))
+            lines!(ax3, sol_timepoints, sol_lower[:,1], color=(COLORS["NGT"], 0.5), linewidth=1.5, label="95% CI", linestyle=:dot)
+        end 
+        if !isinf(max_parameter_value)
+            sol_upper = Array(solve(models[uquantile_index].problem, p=[max_parameter_value], saveat=sol_timepoints, save_idxs=1))
+
+            lines!(ax3, sol_timepoints, sol_upper[:,1], color=(COLORS["NGT"], 0.5), linewidth=1.5, label="95% CI", linestyle=:dot)
+        end
+
 
         linkyaxes!(ax1, ax2, ax3)
         Legend(f[2,1:6], ax1, orientation=:horizontal, merge=true)
