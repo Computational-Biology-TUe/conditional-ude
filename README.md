@@ -13,11 +13,13 @@ A cUDE is trained with a global neural network parameter set, and a set of condi
 ## Structure of this repository
 This repository contains the following folders:
 - `assets`: illustrations in the Readme files.
-- `c-peptide`: all code surrounding model fits of the UDE and the final symbolic equations on the c-peptide data, as well as the computation of indices of beta-cell function.
+- `c-peptide`: code model fits of the UDE and the final symbolic equations on the c-peptide data, as well as the computation of indices of beta-cell function.
 - `data`: contains the data and the associated license used for this project.
 - `figures`: contains the figures saved from the code.
 - `symbolic-regression`: all code and raw result files from the symbolic regression run.
 - `source_data`: all raw results from the code runs.
+- `src`: contains the functions that are used in the code runs
+- `suppression`: contains the code for the "suppression model" simulated example, which is used to illustrate the cUDE methodology.
 
 ## Dependencies
 Dependencies are split between Julia and Python.
