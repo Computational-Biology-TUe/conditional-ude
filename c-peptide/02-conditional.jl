@@ -616,7 +616,7 @@ save("figures/revision/supplementary/sampled_simulations.png", figure_sampled_si
 save("figures/revision/supplementary/beta_distribution.svg", figure_beta_distribution, px_per_unit=300/inch)
 save("figures/revision/supplementary/sampled_simulations.svg", figure_sampled_simulations, px_per_unit=300/inch)
 
-
+second_best_index = 8
 figure_second_best_correlation = let f = Figure(size=(6cm, 6cm), fontsize=8pt, fonts=FONTS)
 
     markers=[:circle, :utriangle, :rect]

@@ -181,6 +181,8 @@ figure_mle_map = let f = Figure()
 
     f
 end
+
+save("SAEM_MAP_vs_MLE.png", figure_mle_map)
 # saem_result.p_individuals
 # saem_result.p_population
 figure = let f = Figure()
