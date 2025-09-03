@@ -1,4 +1,5 @@
-<a href="https://www.biorxiv.org/content/10.1101/2025.01.13.632692v1"> <img alt="Preprint Badge" src="https://img.shields.io/badge/bioR%CF%87iv-10.1101%2F2025.01.13.632692v1-red"></a>
+[![DOI](https://zenodo.org/badge/849030834.svg)](https://doi.org/10.5281/zenodo.17043463)
+<a href="https://www.nature.com/articles/s41540-025-00570-6" > <img alt="Publication badge" src="https://img.shields.io/badge/Publication-de_Rooij_et_al._(2025)-e30613?logo=google-scholar&logoColor=%23FFFFFF&link=https%3A%2F%2Fwww.nature.com%2Farticles%2Fs41540-025-00570-6"></a>
 
 # Conditional UDE
 Repository accompanying the paper on conditional universal differential equations.
@@ -48,16 +49,27 @@ Poetry was used for package management. Packages are included in the `pyproject.
 ## Citation
 When using the methodology/code from this repository, please cite:
 
-- de Rooij, M., van Riel, N.A.W., and O'Donovan, S.D. Conditional Universal Differential Equations Simultaneously Capture Population Level Dynamics and Inter-individual Variation in Human C-peptide Production. _bioRxiv_ 2025.01.13.632692 (2025) DOI: [https://doi.org/10.1101/2025.01.13.632692](https://doi.org/10.1101/2025.01.13.632692)
+- de Rooij, M., van Riel, N.A.W. & O’Donovan, S.D. Conditional universal differential equations capture population dynamics and interindividual variation in c-peptide production. _npj Syst Biol Appl_ **11**, 84 (2025). [https://doi.org/10.1038/s41540-025-00570-6](https://doi.org/10.1038/s41540-025-00570-6)
 
 **BibTeX Entry**
 ```latex
-@article{derooij2025conditionalude,
-  title={Conditional Universal Differential Equations Simultaneously Capture Population Level Dynamics and Inter-individual Variation in Human C-peptide Production},
-  author={{de Rooij}, Max and {van Riel}, Natal A. W. and {O'Donovan}, Shauna D."},
-  journal={bioRxiv preprint bioRxiv:2025.01.13.632692},
-  year={2025},
-  doi={https://doi.org/10.1101/2025.01.13.632692}
+@article{de_rooij_conditional_2025,
+	title = {Conditional universal differential equations capture population dynamics and interindividual variation in c-peptide production},
+	volume = {11},
+	copyright = {2025 The Author(s)},
+	issn = {2056-7189},
+	url = {https://www.nature.com/articles/s41540-025-00570-6},
+	doi = {10.1038/s41540-025-00570-6},
+	language = {en},
+	number = {1},
+	urldate = {2025-09-03},
+	journal = {npj Systems Biology and Applications},
+	author = {{de Rooij}, Max and {van Riel}, Natal A. W. and O’Donovan, Shauna D.},
+	month = jul,
+	year = {2025},
+	note = {Publisher: Nature Publishing Group},
+	keywords = {Biomedical engineering, Differential equations, Systems biology},
+	pages = {84},
 }
 ```
 
