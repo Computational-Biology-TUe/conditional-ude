@@ -1,5 +1,5 @@
 # Model fit to the train data and evaluation on the test data
-extension = "eps"
+extension = "svg"
 inch = 96
 pt = 4/3
 cm = inch / 2.54
@@ -14,11 +14,11 @@ COLORS = Dict(
 
 MANUSCRIPT_FIGURES = true
 ECCB_FIGURES = true
-FONTS = (
-    ; regular = "Fira Sans Light",
-    bold = "Fira Sans SemiBold",
-    italic = "Fira Sans Italic",
-    bold_italic = "Fira Sans SemiBold Italic",
+        FONTS = (
+    ; regular = "assets/fonts/Newsreader_9pt-Regular.ttf",
+    bold = "assets/fonts/Newsreader_9pt-Bold.ttf",
+    italic = "assets/fonts/Newsreader_9pt-Italic.ttf",
+    bold_italic = "assets/fonts/Newsreader_9pt-BoldItalic.ttf",
 )
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
@@ -69,7 +69,7 @@ end
 
 if MANUSCRIPT_FIGURES
 
-    model_fit_figure = let f = Figure(size=(linewidth,6cm), fontsize=10pt)
+    model_fit_figure = let f = Figure(size=(linewidth,6cm), fontsize=10pt, fonts=FONTS)
 
         ga = GridLayout(f[1,1:2])
         gb = GridLayout(f[1,3:4])
@@ -173,14 +173,14 @@ if MANUSCRIPT_FIGURES
     save("figures/model_fit_external.$extension", model_fit_figure, px_per_unit=300/inch)
 end
 
-if ECCB_FIGURES
+#if ECCB_FIGURES
 
 
     # ECCB submission
-    COLORS = Dict(
-        "NGT" => RGBf(197/255, 205/255, 229/255),
-        "IGT" => RGBf(110/255, 129/255, 192/255),
-        "T2DM" => RGBf(41/255, 55/255, 148/255)
+        COLORS = Dict(
+        "NGT" => "#4D6F64",
+        "IGT" => "#A97B6D",
+        "T2DM" => "#5C7FA3"
     )
 
     COLORS_2 = Dict(
@@ -195,25 +195,35 @@ if ECCB_FIGURES
     textwidth = pagewidth - 2 * margin
     aspect = 1
 
-    model_fit_figure = let f = Figure(size=(0.4textwidth,0.25textwidth), fontsize=7pt, fonts=FONTS, backgroundcolor=:transparent)
+    model_fit_figure = let f = Figure(size=(16cm,10cm), fontsize=20pt, fonts=FONTS, backgroundcolor=:transparent)
 
         sol_timepoints = timepoints[1]:0.1:timepoints[end]
         sols = [Array(solve(model.problem, p=[beta], saveat=sol_timepoints, save_idxs=1)) for (model,beta) in zip(models, betas)]
 
-        ax1 = Axis(f[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]", backgroundcolor=:transparent, xgridvisible=false, ygridvisible=false, xlabelfont=:bold, ylabelfont=:bold) 
+    ax1 = Axis(f[1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false, spinewidth=0.05cm, bottomspinecolor=background_color, leftspinecolor=background_color, xtickcolor=background_color, ytickcolor=background_color, xticklabelcolor=background_color, yticklabelcolor=background_color, xgridcolor=(background_color,0.3), ygridcolor=(background_color,0.3))
 
         median_index = argmedian(objectives)
+        #lquantile_index = argquantile(objectives, 0.25)
+        uquantile_index = argquantile(objectives, 0.3)
 
-        lines!(ax1, sol_timepoints, sols[median_index], color=COLORS["T2DM"], linestyle=:solid, linewidth=2, label="Model")
-        scatter!(ax1, timepoints, cpeptide_data[median_index,:], color=COLORS["T2DM"], markersize=5, label="Data")
+        # lines!(ax1, sol_timepoints, sols[median_index], color=COLORS["T2DM"], linestyle=:solid, linewidth=0.15cm, label="Model")
+        # scatter!(ax1, timepoints, cpeptide_data[median_index,:], color=COLORS["T2DM"], markersize=0.5cm, label="Data")
 
+        # lines!(ax1, sol_timepoints, sols[lquantile_index], color=COLORS["IGT"], linestyle=:solid, linewidth=0.15cm, label="Model")
+        # scatter!(ax1, timepoints, cpeptide_data[lquantile_index,:], color=COLORS["IGT"], markersize=0.5cm, label="Data")
+
+        lines!(ax1, sol_timepoints, sols[uquantile_index], color=COLORS["NGT"], linestyle=:solid, linewidth=0.15cm, label="Model")
+        scatter!(ax1, timepoints, cpeptide_data[uquantile_index,:], color=COLORS["NGT"], markersize=0.5cm, label="Data")
+
+        vspan!(ax1, 0, 120, color=(:black, 0.1), label="Train time")
         Legend(f[1,2], ax1, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
+
 
         f
     end
 
-    save("figures/eccb/external.$extension", model_fit_figure, px_per_unit=600/inch)
-end
+    save("figures/eccb/external_poster.$extension", model_fit_figure, px_per_unit=600/inch)
+#end
 
 
 

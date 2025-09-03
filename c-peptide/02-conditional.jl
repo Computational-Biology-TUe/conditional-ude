@@ -18,8 +18,6 @@ end
 
 indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
 
-
-
 # define the neural network
 network = chain(4, 2, tanh)
 t2dm = train_data.types .== "T2DM" # we filter on T2DM to compute the parameters from van Cauter (which discriminate between t2dm and ngt)
@@ -66,6 +64,54 @@ betas)
 
 second_best_index = sortperm(sum(objectives, dims=2)[:])[2]
 
+    COLORS = Dict(
+    "T2DM" => RGBf(1/255, 120/255, 80/255),
+    "NGT" => RGBf(1/255, 101/255, 157/255),
+    "IGT" => RGBf(201/255, 78/255, 0/255)
+    )
+
+
+    inch = 96
+    pt = 4/3
+    cm = inch / 2.54
+    linewidth = 21cm * 0.8
+
+
+    FONTS = (
+    ; regular = "assets/fonts/Newsreader_9pt-Regular.ttf",
+    bold = "assets/fonts/Newsreader_9pt-Bold.ttf",
+    italic = "assets/fonts/Newsreader_9pt-Italic.ttf",
+    bold_italic = "assets/fonts/Newsreader_9pt-BoldItalic.ttf",
+)
+
+# obtain the betas for the train data
+    lb = minimum(betas[best_model_index]) - 0.1*abs(minimum(betas[best_model_index]))
+    ub = maximum(betas[best_model_index]) + 0.1*abs(maximum(betas[best_model_index]))
+
+    optsols = train_with_sigma(models_train, train_data.timepoints, train_data.cpeptide, neural_network_parameters[best_model_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
+    betas_train = [optsol.u.ode[1] for optsol in optsols]
+    sigmas_train = [optsol.u.sigma for optsol in optsols]
+    objectives_train = ([optsol.objective for optsol in optsols] .- (length(train_data.timepoints)/2) .* log.(sigmas_train.^2)) .* (2 .* sigmas_train.^2)
+
+
+    # obtain the betas for the test data
+    t2dm = test_data.types .== "T2DM"
+    models_test = [
+        CPeptideConditionalUDEModel(test_data.glucose[i,:], test_data.timepoints, test_data.ages[i], network, test_data.cpeptide[i,:], t2dm[i]) for i in axes(test_data.glucose, 1)
+    ]
+
+    optsols = train_with_sigma(models_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters[best_model_index], lbfgs_lower_bound=lb, lbfgs_upper_bound=ub, initial_beta=-1.0)
+    betas_test = [optsol.u.ode[1] for optsol in optsols]
+    sigmas_test = [optsol.u.sigma for optsol in optsols]
+    objectives_test = ([optsol.objective for optsol in optsols] .- (length(test_data.timepoints)/2) .* log.(sigmas_test.^2)) .* (2 .* sigmas_test.^2)
+
+    for type in unique(train_data.types)
+    type_indices = [train_data.types; test_data.types] .== type
+    println("Type: ", type)
+    mse_values_type = [objectives_train; objectives_test][type_indices]
+    println("MSE: ", mean(mse_values_type))
+    end
+
 if MAKE_FIGURES
 
     COLORS = Dict(
@@ -81,10 +127,10 @@ if MAKE_FIGURES
     linewidth = 21cm * 0.8
 
     FONTS = (
-    ; regular = "Fira Sans Light",
-    bold = "Fira Sans SemiBold",
-    italic = "Fira Sans Italic",
-    bold_italic = "Fira Sans SemiBold Italic",
+    ; regular = "assets/fonts/Newsreader_9pt-Regular.ttf",
+    bold = "assets/fonts/Newsreader_9pt-Bold.ttf",
+    italic = "assets/fonts/Newsreader_9pt-Italic.ttf",
+    bold_italic = "assets/fonts/Newsreader_9pt-BoldItalic.ttf",
 )
 
     # Figure 3 - model fits and errors for the test data
@@ -664,8 +710,22 @@ end
 
 save("figures/revision/figure_s8/second_best_correlation_comparison.png", figure_second_best_correlation, px_per_unit=300/inch)
 
+background_color = "#111111"
+
 # Figure comparison with non-conditional model
-figure_comparison = let f = Figure(size=(16cm, 7cm), fontsize=8pt, fonts=FONTS, backgroundcolor=:transparent)
+figure_comparison = let f = Figure(size=(17cm, 7cm), fontsize=10pt, fonts=FONTS, backgroundcolor=:transparent, textcolor=background_color)
+
+    COLORS_COMPARISON = Dict(
+        "NGT" => "#4D6F64",
+        "IGT" => "#A97B6D",
+        "T2DM" => "#5C7FA3"
+    )
+
+    MAKERS = Dict(
+    "NGT" => :circle,
+    "IGT" => :utriangle,
+    "T2DM" => :rect
+)
 
     # fit the non-conditional model
     # Fit the c-peptide data with a regular UDE model on the average data of the train subgroup
@@ -685,16 +745,19 @@ figure_comparison = let f = Figure(size=(16cm, 7cm), fontsize=8pt, fonts=FONTS, 
     neural_network_parameters_nc = best_model_nc.u[:]
 
     plot_timepoints = train_data.timepoints[1]:0.1:train_data.timepoints[end]
-    axs = []
+    ax_cude = Axis(f[1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title="cUDE", backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false, spinewidth=0.05cm, bottomspinecolor=background_color, leftspinecolor=background_color, xtickcolor=background_color, ytickcolor=background_color, xticklabelcolor=background_color, yticklabelcolor=background_color, xgridcolor=(background_color,0.3), ygridcolor=(background_color,0.3))
+
+    ax_ude = Axis(f[1,2], xlabel="Time [min]", backgroundcolor=:transparent, title="UDE",xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false, spinewidth=0.05cm, bottomspinecolor=background_color, leftspinecolor=background_color, xtickcolor=background_color, ytickcolor=background_color, xticklabelcolor=background_color, yticklabelcolor=background_color, xgridcolor=(background_color,0.3), ygridcolor=(background_color,0.3))
     for (i, type) in enumerate(unique(test_data.types))
 
         type_indices = test_data.types .== type
 
         mean_c_peptide = mean(test_data.cpeptide[type_indices,:], dims=1)
         std_c_peptide = std(test_data.cpeptide[type_indices,:], dims=1)[:]
+        ste_c_peptide = std_c_peptide ./ sqrt(sum(type_indices))
         mean_glucose = mean(test_data.glucose[type_indices,:], dims=1)[:]
         mean_age = mean(test_data.ages[type_indices])
-        ax = Axis(f[1,i], title=type, xlabel="Time [min]", ylabel="C-peptide [nmol/L]", backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false)
+
 
         # conditional model
 
@@ -708,28 +771,145 @@ figure_comparison = let f = Figure(size=(16cm, 7cm), fontsize=8pt, fonts=FONTS, 
         # simulate the model
         sol = Array(solve(model.problem, Tsit5(), p=ComponentArray(conditional=[beta], neural=neural_network_parameters[best_model_index]), saveat=plot_timepoints, save_idxs=1))
 
-        lines!(ax, plot_timepoints, sol, color=(COLORS[type], 1), linewidth=2, label="cUDE", linestyle=:solid)
+        lines!(ax_cude, plot_timepoints, sol, color=(COLORS_COMPARISON[type], 1), linewidth=0.1cm, label="$type (Model)", linestyle=:solid)
 
         # non-conditional model
         ## define model
         model = CPeptideUDEModel(mean_glucose, test_data.timepoints, mean_age, neural_network_nc, mean_c_peptide[:],type == "T2DM")
         sol = Array(solve(model.problem, Tsit5(), p=neural_network_parameters_nc, saveat=plot_timepoints, save_idxs=1))
-        lines!(ax, plot_timepoints, sol, color=(COLORS[type], 1), linewidth=2, label="UDE", linestyle=:dash)
+        lines!(ax_ude, plot_timepoints, sol, color=(COLORS_COMPARISON[type], 1), linewidth=0.1cm, label="$type (Model)", linestyle=:solid)
 
-        scatter!(ax, test_data.timepoints, mean_c_peptide[:], color=(:black, 1), markersize=8, label="Data (mean ± std)")
-        errorbars!(ax, test_data.timepoints, mean_c_peptide[:], std_c_peptide, color=(:black, 1), whiskerwidth=7, label="Data (mean ± std)", linewidth=1.5)
-        push!(axs, ax)
+        scatter!(ax_ude, test_data.timepoints, mean_c_peptide[:], color=(COLORS_COMPARISON[type], 1), markersize=0.4cm, label="$type (mean ± std. err.)", marker=MAKERS[type])
+        errorbars!(ax_ude, test_data.timepoints, mean_c_peptide[:], ste_c_peptide, color=(COLORS_COMPARISON[type], 1), whiskerwidth=7, label="$type (mean ± std. err.)", linewidth=0.08cm)
+        scatter!(ax_cude, test_data.timepoints, mean_c_peptide[:], color=(COLORS_COMPARISON[type], 1), markersize=0.4cm, label="$type (mean ± std. err.)", marker=MAKERS[type])
+        errorbars!(ax_cude, test_data.timepoints, mean_c_peptide[:], ste_c_peptide, color=(COLORS_COMPARISON[type], 1), whiskerwidth=7, label="$type (mean ± std. err.)", linewidth=0.08cm)
+        #push!(axs, ax)
     end
-    linkyaxes!(axs...)
+    linkyaxes!(ax_cude, ax_ude)
 
     # add legend
-    legend = Legend(f[2, 1:3], axs[1], merge=true, orientation = :horizontal, fontsize=8pt, font = FONTS)
+    legend = Legend(f[1, 3], ax_cude, merge=true, orientation = :vertical, fontsize=8pt, font = FONTS, backgroundcolor=:transparent, framevisible=false)
 
     f
 
 end
 
-save("figures/revision/figure_sx/comparison.png", figure_comparison, px_per_unit=300/inch)
+save("figures/eccb/poster_plot.svg", figure_comparison, px_per_unit=300/inch)
+
+figure_comparison_errors = let f = Figure(size=(10cm, 7cm), fontsize=10pt, fonts=FONTS, backgroundcolor=:transparent, textcolor=background_color)
+
+    COLORS_COMPARISON = Dict(
+        "NGT" => "#4D6F64",
+        "IGT" => "#A68A64",
+        "T2DM" => "#5C7FA3"
+    )
+
+    MAKERS = Dict(
+    "NGT" => :circle,
+    "IGT" => :utriangle,
+    "T2DM" => :rect
+)
+
+    # fit the non-conditional model
+    # Fit the c-peptide data with a regular UDE model on the average data of the train subgroup
+    mean_c_peptide_train = mean(train_data.cpeptide, dims=1)
+    std_c_peptide_train = std(train_data.cpeptide, dims=1)[:]
+
+    mean_glucose_train = mean(train_data.glucose, dims=1)
+
+    neural_network_nc = chain(
+        4, 2, tanh; input_dims=1
+    )
+
+    model_train_nc = CPeptideUDEModel(mean_glucose_train[:], train_data.timepoints, mean(train_data.ages), neural_network_nc, mean_c_peptide_train[:], false)
+    optsols_train_nc = train(model_train_nc, train_data.timepoints, mean_c_peptide_train[:], rng)
+
+    best_model_nc = optsols_train_nc[argmin([optsol.objective for optsol in optsols_train_nc])]
+    neural_network_parameters_nc = best_model_nc.u[:]
+
+    #plot_timepoints = train_data.timepoints[1]:0.1:train_data.timepoints[end]
+    ax_cude = Axis(f[1,1], xlabel="Group", ylabel="MAE (nmol/L)", backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=true, ygridvisible=true, topspinevisible=false, rightspinevisible=false, spinewidth=0.05cm, bottomspinecolor=background_color, leftspinecolor=background_color, xtickcolor=background_color, ytickcolor=background_color, xticklabelcolor=background_color, yticklabelcolor=background_color, xgridcolor=(background_color,0.3), ygridcolor=(background_color,0.3), xticks=(0:2, ["NGT", "IGT", "T2DM"]))
+
+
+    cude_errors = []
+    ude_errors = []
+    for (i, type) in enumerate(test_data.types)
+
+        type_indices = test_data.types .== type
+
+        c_peptide = test_data.cpeptide[i,:]
+        glucose = test_data.glucose[i,:]
+        age = test_data.ages[i]
+
+        # non-conditional model
+        ## define model
+        model = CPeptideUDEModel(glucose, test_data.timepoints, age, neural_network_nc, c_peptide,type == "T2DM")
+        sol = Array(solve(model.problem, Tsit5(), p=neural_network_parameters_nc, saveat=test_data.timepoints, save_idxs=1))
+
+        mse_cpeptide_nc = sum(abs2, sol[:,1] .- c_peptide)
+        push!(ude_errors, mse_cpeptide_nc)
+    end
+
+    # make boxplots
+    type_map = Dict("NGT" => 0, "IGT" => 1, "T2DM" => 2)
+    locs = [type_map[type] for type in test_data.types]
+    colors = [COLORS_COMPARISON[type] for type in test_data.types]
+    violin!(ax_cude, locs .+ 0.2, sqrt.(objectives_test), color=(COLORS_COMPARISON["NGT"], 0.6), width=0.8, side=:right, strokewidth=1, datalimits=(0,Inf))
+    scatter!(ax_cude, locs .+ 0.1, sqrt.(objectives_test), color=COLORS_COMPARISON["NGT"], markersize=10, label="cUDE", marker=:circle)
+    violin!(ax_cude, locs .-0.2, sqrt.(ude_errors), color=(COLORS_COMPARISON["T2DM"], 0.6), width=0.8, side=:right, strokewidth=1, datalimits=(0,Inf))
+    scatter!(ax_cude, locs .-0.3, sqrt.(ude_errors), color=COLORS_COMPARISON["T2DM"], markersize=10, label="UDE", marker=:utriangle)
+
+    # add legend
+    legend = Legend(f[1, 2], ax_cude, merge=true, orientation = :vertical, fontsize=12pt, font = FONTS, backgroundcolor=:transparent, framevisible=false, markersize=14)
+
+    f
+
+end
+
+save("figures/eccb/poster_plot_errors.svg", figure_comparison_errors, px_per_unit=300/inch, backgroundcolor=:transparent)
+
+correlation_figure = let fig = Figure(size = (11cm, 7cm), fontsize=12pt, fonts=FONTS, backgroundcolor=:transparent)
+    # compute the correlations
+    correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
+    correlation_second = corspearman([betas_train; betas_test], [train_data.ages; test_data.ages])
+    correlation_isi = corspearman([betas_train; betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
+
+    markers=[:circle, :utriangle, :rect]
+
+        COLORS_COMPARISON = Dict(
+        "NGT" => "#4D6F64",
+        "IGT" => "#A97B6D",
+        "T2DM" => "#5C7FA3"
+    )
+
+    MAKERS = Dict(
+        "NGT" => :circle,
+        "IGT" => :utriangle,
+        "T2DM" => :rect
+    )
+    MARKERSIZES = Dict(
+        "NGT" => 15,
+        "IGT" => 15,
+        "T2DM" => 15
+    )
+
+    ax_first = Axis(fig[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))", backgroundcolor=:transparent)
+
+    scatter!(ax_first, exp.(betas_train), train_data.first_phase, color = (:black, 0.2), markersize=10, label="Train Data", marker=:star5)
+    for (i,type) in enumerate(unique(test_data.types))
+        type_indices = test_data.types .== type
+        scatter!(ax_first, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], color=COLORS_COMPARISON[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
+    end
+
+    Legend(fig[1,2], ax_first, orientation=:vertical, backgroundcolor=:transparent, framevisible=false)
+
+    
+    fig
+
+end
+
+save("figures/eccb/correlation_first_phase.svg", correlation_figure, px_per_unit=300/inch, backgroundcolor=:transparent)
+
 
 # save("figures/other_betas.png", figure_other_betas, px_per_unit=4)
 

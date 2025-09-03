@@ -36,4 +36,4 @@ poetry.lock
 
 symbolic-regression/old
 
-figures/eccb
+legacy_figures

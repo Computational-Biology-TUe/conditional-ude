@@ -44,10 +44,10 @@ if MAKE_FIGURES
     ]
 
     FONTS = (
-    ; regular = "Fira Sans Light",
-    bold = "Fira Sans SemiBold",
-    italic = "Fira Sans Italic",
-    bold_italic = "Fira Sans SemiBold Italic",
+    ; regular = "assets/fonts/Helvetica.ttf",
+    bold = "assets/fonts/Helvetica-Bold.ttf",
+    italic = "assets/fonts/Helvetica-Oblique.ttf",
+    bold_italic = "assets/fonts/Helvetica-BoldOblique.ttf",
 )
 
     inch = 96

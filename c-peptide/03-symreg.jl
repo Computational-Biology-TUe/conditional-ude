@@ -1,5 +1,5 @@
 # Model fit to the train data and evaluation on the test data
-extension = "eps"
+extension = "svg"
 inch = 96
 pt = 4/3
 cm = inch / 2.54
@@ -16,10 +16,10 @@ COLORS = Dict(
 )
 
     FONTS = (
-    ; regular = "Fira Sans Light",
-    bold = "Fira Sans SemiBold",
-    italic = "Fira Sans Italic",
-    bold_italic = "Fira Sans SemiBold Italic",
+    ; regular = "assets/fonts/Helvetica.ttf",
+    bold = "assets/fonts/Helvetica-Bold.ttf",
+    italic = "assets/fonts/Helvetica-Oblique.ttf",
+    bold_italic = "assets/fonts/Helvetica-BoldOblique.ttf",
 )
 
 rng = StableRNG(232705)
@@ -39,7 +39,7 @@ function production(ΔG, k)
     return prod
 end
 
-figure_production = let f = Figure(size=(linewidth,6cm), fontsize=10pt)
+figure_production = let f = Figure(size=(linewidth,6cm), fontsize=10pt, fonts=FONTS)
 
 
     ga = GridLayout(f[1,1])
@@ -112,7 +112,7 @@ objectives = ([optsol.objective for optsol in optsols].- (length(test_data.timep
 
 
 model_fit_figure = let fig
-    fig = Figure(size = (linewidth, 10cm), fontsize=8pt)
+    fig = Figure(size = (linewidth, 10cm), fontsize=8pt, fonts=FONTS)
     gas = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
     gb = GridLayout(fig[1,4])
     # do the simulations

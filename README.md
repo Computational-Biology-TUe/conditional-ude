@@ -1,9 +1,9 @@
 <a href="https://www.biorxiv.org/content/10.1101/2025.01.13.632692v1"> <img alt="Preprint Badge" src="https://img.shields.io/badge/bioR%CF%87iv-10.1101%2F2025.01.13.632692v1-red"></a>
 
 # Conditional UDE
-Repository accompanying the manuscript on conditional universal differential equations.
+Repository accompanying the paper on conditional universal differential equations.
 
-![Conditional UDE](assets/cude_schema.png)
+![Conditional UDE](assets/graphical_abstract.png)
 
 ## What is a conditional UDE?
 Whereas universal differential equations do not directly accommodate the derivation of model components from data containing variability between samples, such as measurements on individuals in a population, the conditional UDE, combined with its specific training procedure, accounts for this through additional learnable inputs. 
