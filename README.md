@@ -1,4 +1,5 @@
-<a href="https://www.biorxiv.org/content/10.1101/2025.01.13.632692v1"> <img alt="Preprint Badge" src="https://img.shields.io/badge/bioR%CF%87iv-10.1101%2F2025.01.13.632692v1-red"></a>
+[![DOI](https://zenodo.org/badge/849030834.svg)](https://doi.org/10.5281/zenodo.17043463)
+<a href="https://www.nature.com/articles/s41540-025-00570-6" > <img alt="Publication badge" src="https://img.shields.io/badge/Publication-de_Rooij_et_al._(2025)-e30613?logo=google-scholar&logoColor=%23FFFFFF&link=https%3A%2F%2Fwww.nature.com%2Farticles%2Fs41540-025-00570-6"></a>
 
 # Conditional UDE
 Repository accompanying the manuscript on conditional universal differential equations.
